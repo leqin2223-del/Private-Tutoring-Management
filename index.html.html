@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家教手记 · 日程与账本</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --ink:#1F2B3E;
+    --ink-soft:#3D4A5E;
+    --paper:#FBF8F2;
+    --paper-raised:#FFFFFF;
+    --line:#E4DFD1;
+    --line-strong:#CFC8B4;
+    --sage:#6B8F71;
+    --sage-dark:#4F6F55;
+    --sage-tint:#E8EFE6;
+    --amber:#D98E3F;
+    --amber-tint:#FBEDDA;
+    --rose:#C15B4B;
+    --rose-tint:#F7E6E2;
+    --muted:#8A8577;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .app{
+    display:flex;
+    min-height:100vh;
+  }
+
+  /* ---- Sidebar / notebook tabs ---- */
+  .sidebar{
+    width:210px;
+    flex-shrink:0;
+    background:var(--ink);
+    color:#EDE9DE;
+    padding:28px 0;
+    display:flex;
+    flex-direction:column;
+  }
+  .brand{
+    padding:0 24px 24px 24px;
+    border-bottom:1px solid rgba(237,233,222,0.15);
+    margin-bottom:16px;
+  }
+  .brand h1{ font-size:22px; color:#fff; }
+  .brand p{ margin:6px 0 0; font-size:12px; color:#B9B2A0; }
+  .tabs{ display:flex; flex-direction:column; gap:2px; padding:0 12px; }
+  .tab-btn{
+    all:unset;
+    cursor:pointer;
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    padding:12px 12px;
+    border-radius:8px;
+    font-size:14px;
+    color:#CFC9B8;
+    transition:background .15s ease, color .15s ease;
+  }
+  .tab-btn .idx{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8D8770; }
+  .tab-btn:hover{ background:rgba(255,255,255,0.06); color:#fff; }
+  .tab-btn.active{ background:var(--sage); color:#fff; }
+  .tab-btn.active .idx{ color:#DCEBDF; }
+  .conn-dot{
+    margin-top:auto;
+    display:flex; align-items:center; gap:8px;
+    padding:14px 24px 0;
+    font-size:11.5px;
+    color:#B9B2A0;
+    border-top:1px solid rgba(237,233,222,0.15);
+  }
+  .dot{ width:7px; height:7px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .dot.on{ background:#7FBB86; }
+  .dot.off{ background:var(--rose); }
+
+  /* ---- Main ---- */
+  .main{ flex:1; padding:32px 40px; max-width:1100px; }
+  .view{ display:none; }
+  .view.active{ display:block; }
+  .view-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    margin-bottom:22px;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .view-head h2{ font-size:26px; }
+  .view-head .sub{ color:var(--muted); font-size:13px; margin-top:4px; }
+
+  button.primary{
+    all:unset; cursor:pointer;
+    background:var(--sage);
+    color:#fff;
+    padding:9px 16px;
+    border-radius:8px;
+    font-size:13px;
+    font-weight:500;
+    transition:background .15s;
+  }
+  button.primary:hover{ background:var(--sage-dark); }
+  button.primary:disabled{ opacity:.5; cursor:not-allowed; }
+  button.ghost{
+    all:unset; cursor:pointer;
+    padding:8px 14px;
+    border-radius:8px;
+    font-size:13px;
+    color:var(--ink-soft);
+    border:1px solid var(--line-strong);
+    transition:background .15s;
+  }
+  button.ghost:hover{ background:var(--sage-tint); }
+  button.icon-btn{
+    all:unset; cursor:pointer;
+    width:26px; height:26px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:6px;
+    color:var(--muted);
+    font-size:16px;
+  }
+  button.icon-btn:hover{ background:var(--line); color:var(--ink); }
+
+  /* ---- Setup banner ---- */
+  .setup-banner{
+    background:var(--amber-tint);
+    border:1px solid #EAC08A;
+    color:#7A4E17;
+    border-radius:var(--radius);
+    padding:14px 18px;
+    font-size:13px;
+    margin-bottom:20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+
+  /* ---- Calendar ---- */
+  .cal-nav{ display:flex; align-items:center; gap:14px; }
+  .cal-nav .month-label{ font-size:16px; font-weight:600; min-width:130px; text-align:center; }
+  .cal-grid{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .cal-weekdays, .cal-rows{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+  }
+  .cal-weekdays div{
+    padding:10px 8px;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted);
+    border-bottom:1px solid var(--line);
+    text-align:left;
+  }
+  .cal-cell{
+    min-height:104px;
+    border-right:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    padding:6px 6px 8px;
+    position:relative;
+    cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+  .cal-cell:hover{ background:#FAF6EC; }
+  .cal-cell.out{ background:#F5F3EC; color:var(--muted); cursor:default; }
+  .cal-cell.out:hover{ background:#F5F3EC; }
+  .cal-cell.today .daynum{
+    background:var(--ink);
+    color:#fff;
+    border-radius:50%;
+  }
+  .daynum{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    width:20px; height:20px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .holiday-flag{
+    font-size:10px;
+    background:var(--amber-tint);
+    color:#95601E;
+    padding:2px 5px;
+    border-radius:4px;
+    line-height:1.3;
+    white-space:normal;
+  }
+  .sess-chip{
+    font-size:10.5px;
+    background:var(--sage-tint);
+    color:var(--sage-dark);
+    padding:2px 5px;
+    border-radius:4px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .sess-chip.leave{ background:var(--rose-tint); color:var(--rose); text-decoration:line-through; }
+  .sess-chip.cancelled{ background:#EDEAE0; color:var(--muted); text-decoration:line-through; }
+  .more-chip{ font-size:10px; color:var(--muted); }
+
+  /* ---- Cards / lists ---- */
+  .card{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px 20px;
+    margin-bottom:14px;
+  }
+  .student-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .student-row:last-child{ border-bottom:none; }
+  .student-name{ font-weight:600; font-size:15px; }
+  .student-meta{ font-size:12.5px; color:var(--muted); margin-top:3px; }
+  .rate-tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    background:var(--sage-tint);
+    color:var(--sage-dark);
+    padding:4px 9px;
+    border-radius:6px;
+  }
+  .row-actions{ display:flex; gap:4px; align-items:center; }
+  .empty{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--muted);
+    font-size:13.5px;
+  }
+
+  /* ---- Billing ---- */
+  .summary-strip{
+    display:flex; gap:14px; margin-bottom:18px; flex-wrap:wrap;
+  }
+  .stat{
+    flex:1; min-width:150px;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px 18px;
+  }
+  .stat .label{ font-size:12px; color:var(--muted); }
+  .stat .value{ font-family:'IBM Plex Mono',monospace; font-size:22px; margin-top:6px; font-weight:600; }
+  .stat.warn .value{ color:var(--rose); }
+  .stat.ok .value{ color:var(--sage-dark); }
+
+  .bill-table{ width:100%; border-collapse:collapse; }
+  .bill-table th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--line);
+  }
+  .bill-table td{
+    padding:10px; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:middle;
+  }
+  .bill-table tr:last-child td{ border-bottom:none; }
+  .paid-toggle{
+    all:unset; cursor:pointer;
+    font-size:11.5px;
+    padding:4px 10px;
+    border-radius:20px;
+    font-weight:500;
+  }
+  .paid-toggle.unpaid{ background:var(--rose-tint); color:var(--rose); }
+  .paid-toggle.paid{ background:var(--sage-tint); color:var(--sage-dark); }
+  .status-tag{
+    font-size:11px; padding:3px 8px; border-radius:5px;
+  }
+  .status-tag.scheduled{ background:#EAF0F6; color:#3C6690; }
+  .status-tag.completed{ background:var(--sage-tint); color:var(--sage-dark); }
+  .status-tag.leave{ background:var(--rose-tint); color:var(--rose); }
+  .status-tag.cancelled{ background:#EDEAE0; color:var(--muted); }
+
+  /* ---- Settings ---- */
+  .settings-form label{ display:block; font-size:12.5px; color:var(--ink-soft); margin-bottom:6px; font-weight:500; }
+  .settings-form textarea{
+    width:100%;
+    min-height:140px;
+    padding:10px 12px;
+    border:1px solid var(--line-strong);
+    border-radius:7px;
+    font-size:12.5px;
+    font-family:'IBM Plex Mono', monospace;
+    margin-bottom:10px;
+    resize:vertical;
+  }
+  .settings-actions{ display:flex; gap:10px; align-items:center; }
+  .settings-msg{ font-size:12.5px; margin-top:10px; }
+  .settings-msg.ok{ color:var(--sage-dark); }
+  .settings-msg.err{ color:var(--rose); }
+  .rules-block{
+    background:#F5F3EC;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:12px 14px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    line-height:1.6;
+    white-space:pre;
+    overflow-x:auto;
+    color:var(--ink-soft);
+  }
+
+  /* ---- Modal ---- */
+  .modal-mask{
+    display:none;
+    position:fixed; inset:0;
+    background:rgba(31,43,62,0.45);
+    align-items:center; justify-content:center;
+    z-index:50;
+    padding:20px;
+  }
+  .modal-mask.active{ display:flex; }
+  .modal{
+    background:var(--paper-raised);
+    border-radius:12px;
+    width:100%; max-width:420px;
+    padding:24px 24px 20px;
+    max-height:88vh;
+    overflow-y:auto;
+  }
+  .modal h3{ font-size:18px; margin-bottom:4px; }
+  .modal .modal-sub{ font-size:12px; color:var(--muted); margin-bottom:16px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12px; color:var(--ink-soft); margin-bottom:5px; font-weight:500; }
+  .field input, .field select, .field textarea{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid var(--line-strong);
+    border-radius:7px;
+    font-size:13.5px;
+    font-family:'IBM Plex Sans', sans-serif;
+    background:#fff;
+    color:var(--ink);
+  }
+  .field textarea{ resize:vertical; min-height:56px; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .status-choices{ display:flex; gap:6px; flex-wrap:wrap; }
+  .status-choices label{
+    all:unset; cursor:pointer;
+    font-size:12px;
+    padding:6px 11px;
+    border-radius:20px;
+    border:1px solid var(--line-strong);
+    color:var(--ink-soft);
+  }
+  .status-choices input{ display:none; }
+  .status-choices label:has(input:checked){ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .modal-actions{ display:flex; justify-content:space-between; align-items:center; margin-top:18px; }
+  .modal-actions .right{ display:flex; gap:8px; }
+  .danger-link{ all:unset; cursor:pointer; font-size:12.5px; color:var(--rose); }
+
+  /* ---- 登录页 ---- */
+  .login-mask{
+    position:fixed; inset:0;
+    background:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    z-index:100;
+  }
+  .login-box{
+    background:var(--paper-raised);
+    border-radius:12px;
+    width:100%; max-width:340px;
+    padding:32px 28px;
+  }
+  .login-box h1{ font-size:22px; margin-bottom:4px; }
+  .login-box p{ font-size:12.5px; color:var(--muted); margin-bottom:22px; }
+  .login-box .field{ margin-bottom:12px; }
+  .login-box button.primary{ width:100%; text-align:center; padding:11px; margin-top:6px; }
+  .login-msg{ font-size:12.5px; color:var(--rose); margin-top:10px; min-height:16px; }
+  .signout-btn{
+    all:unset; cursor:pointer;
+    font-size:11.5px; color:#B9B2A0;
+    padding:6px 24px 0;
+    display:block;
+  }
+  .signout-btn:hover{ color:#fff; }
+
+  @media (max-width:760px){
+    .app{ flex-direction:column; }
+    .sidebar{ width:100%; padding:16px 0; }
+    .brand{ padding:0 16px 12px; margin-bottom:8px; }
+    .tabs{ flex-direction:row; padding:0 12px; overflow-x:auto; }
+    .conn-dot{ display:none; }
+    .main{ padding:20px; }
+    .cal-cell{ min-height:74px; }
+    .sess-chip, .holiday-flag{ font-size:9.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="login-mask" id="loginMask">
+  <div class="login-box">
+    <h1>家教手记</h1>
+    <p>请先登录，才能查看和编辑你的课表与账本</p>
+    <div class="field">
+      <label>邮箱</label>
+      <input type="email" id="login-email" placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="login-password" placeholder="••••••••">
+    </div>
+    <button class="primary" id="loginBtn">登录</button>
+    <div class="login-msg" id="loginMsg"></div>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
+  <div class="sidebar">
+    <div class="brand">
+      <h1>家教手记</h1>
+      <p>日程 &amp; 收费账本</p>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="cal"><span class="idx">01</span>日历</button>
+      <button class="tab-btn" data-tab="students"><span class="idx">02</span>学生</button>
+      <button class="tab-btn" data-tab="billing"><span class="idx">03</span>账本</button>
+      <button class="tab-btn" data-tab="settings"><span class="idx">04</span>设置</button>
+    </div>
+    <div class="conn-dot">
+      <span class="dot off" id="connDot"></span>
+      <span id="connText">未连接 Firebase</span>
+    </div>
+    <button class="signout-btn" id="signOutBtn">退出登录</button>
+  </div>
+
+  <div class="main">
+
+    <!-- ===== 日历 ===== -->
+    <div class="view active" id="view-cal">
+      <div class="view-head">
+        <div>
+          <h2>课程日历</h2>
+          <div class="sub">点击任意日期即可自由添加课程安排；橙色标签为马来西亚公共假期</div>
+        </div>
+        <div class="cal-nav">
+          <button class="icon-btn" id="prevMonth">‹</button>
+          <div class="month-label" id="monthLabel"></div>
+          <button class="icon-btn" id="nextMonth">›</button>
+          <button class="ghost" id="todayBtn">回到今天</button>
+        </div>
+      </div>
+      <div id="calSetupBanner"></div>
+      <div class="cal-grid">
+        <div class="cal-weekdays">
+          <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+        </div>
+        <div class="cal-rows" id="calRows"></div>
+      </div>
+    </div>
+
+    <!-- ===== 学生 ===== -->
+    <div class="view" id="view-students">
+      <div class="view-head">
+        <div>
+          <h2>学生名单</h2>
+          <div class="sub">设置每位学生的时薪，排课与算账时会自动使用</div>
+        </div>
+        <button class="primary" id="addStudentBtn">+ 添加学生</button>
+      </div>
+      <div class="card" id="studentList"></div>
+    </div>
+
+    <!-- ===== 账本 ===== -->
+    <div class="view" id="view-billing">
+      <div class="view-head">
+        <div>
+          <h2>收费账本</h2>
+          <div class="sub" id="billingSub"></div>
+        </div>
+        <div class="cal-nav">
+          <button class="icon-btn" id="prevBillMonth">‹</button>
+          <div class="month-label" id="billMonthLabel"></div>
+          <button class="icon-btn" id="nextBillMonth">›</button>
+        </div>
+      </div>
+
+      <div class="summary-strip">
+        <div class="stat"><div class="label">本月课时</div><div class="value mono" id="statHours">0</div></div>
+        <div class="stat ok"><div class="label">本月应收总额 (RM)</div><div class="value mono" id="statTotal">0</div></div>
+        <div class="stat warn"><div class="label">未收款 (RM)</div><div class="value mono" id="statUnpaid">0</div></div>
+      </div>
+
+      <div class="card">
+        <table class="bill-table">
+          <thead>
+            <tr><th>日期</th><th>学生</th><th>时长</th><th>状态</th><th>金额 (RM)</th><th>收款</th></tr>
+          </thead>
+          <tbody id="billBody"></tbody>
+        </table>
+        <div class="empty" id="billEmpty" style="display:none;">这个月还没有课程记录</div>
+      </div>
+    </div>
+
+    <!-- ===== 设置 ===== -->
+    <div class="view" id="view-settings">
+      <div class="view-head">
+        <div>
+          <h2>连接你的 Firebase</h2>
+          <div class="sub">已经内置好你的 Firebase 项目配置，任何设备打开这份工具都会自动连接同一份数据，一般不需要再改这里</div>
+        </div>
+      </div>
+      <div class="card settings-form">
+        <label>Firebase 配置（粘贴 firebaseConfig = {...} 那一整段，或者只有大括号里的内容都可以）</label>
+        <textarea id="fbConfigInput" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
+        <div class="settings-actions">
+          <button class="primary" id="saveFbBtn">保存并连接</button>
+          <button class="ghost" id="testFbBtn">测试连接</button>
+        </div>
+        <div class="settings-msg" id="settingsMsg"></div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px; margin-bottom:8px;">安全规则（配合登录使用）</h3>
+        <div class="sub" style="line-height:1.7; margin-bottom:10px;">
+          现在工具已经要求先登录才能进入，Firestore 的安全规则也应该同步收紧成"只有登录用户才能读写"。去 Firestore 的「规则」页，把内容换成：
+        </div>
+        <div class="rules-block">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /students/{id} { allow read, write: if request.auth != null; }
+    match /sessions/{id} { allow read, write: if request.auth != null; }
+  }
+}</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== 排课 Modal ===== -->
+<div class="modal-mask" id="sessModal">
+  <div class="modal">
+    <h3 id="sessModalTitle">添加课程</h3>
+    <div class="modal-sub" id="sessModalDate"></div>
+    <div class="field">
+      <label>学生</label>
+      <select id="f-student"></select>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>时间</label>
+        <input type="time" id="f-time" value="16:00">
+      </div>
+      <div class="field">
+        <label>时长（小时）</label>
+        <input type="number" id="f-duration" value="1" min="0.5" step="0.5">
+      </div>
+    </div>
+    <div class="field">
+      <label>状态</label>
+      <div class="status-choices" id="f-status">
+        <label><input type="radio" name="status" value="scheduled" checked><span>已安排</span></label>
+        <label><input type="radio" name="status" value="completed"><span>已完成</span></label>
+        <label><input type="radio" name="status" value="leave"><span>请假（不计费）</span></label>
+        <label><input type="radio" name="status" value="cancelled"><span>取消（不计费）</span></label>
+      </div>
+    </div>
+    <div class="field">
+      <label>备注（选填）</label>
+      <textarea id="f-note" placeholder="例如：复习范围、教材页数..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="danger-link" id="deleteSessBtn" style="display:none;">删除这节课</button>
+      <div class="right">
+        <button class="ghost" id="cancelSessBtn">取消</button>
+        <button class="primary" id="saveSessBtn">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 学生 Modal ===== -->
+<div class="modal-mask" id="studentModal">
+  <div class="modal">
+    <h3 id="studentModalTitle">添加学生</h3>
+    <div class="field">
+      <label>姓名</label>
+      <input type="text" id="s-name" placeholder="例如：小明">
+    </div>
+    <div class="field">
+      <label>家长联系方式（选填）</label>
+      <input type="text" id="s-contact" placeholder="WhatsApp / 电话">
+    </div>
+    <div class="field">
+      <label>时薪 (RM / 小时)</label>
+      <input type="number" id="s-rate" placeholder="例如：60" min="0" step="1">
+    </div>
+    <div class="field">
+      <label>备注（选填）</label>
+      <textarea id="s-note" placeholder="学习进度、注意事项..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="danger-link" id="deleteStudentBtn" style="display:none;">删除该学生</button>
+      <div class="right">
+        <button class="ghost" id="cancelStudentBtn">取消</button>
+        <button class="primary" id="saveStudentBtn">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   数据层：所有和"数据存在哪里"相关的逻辑都集中在这里（Firebase Firestore 版）。
+   下面的日历/学生/账本界面代码完全不用理会这里怎么存数据。
+   ========================================================= */
+const FB_CONFIG_KEY = 'tutorapp:firebaseConfig';
+let firebaseApp = null;
+let db = null;
+
+// 默认已内置好的 Firebase 项目配置，打开即用，不需要手动去"设置"页粘贴。
+// 这不是密码，本身就是设计来公开写在网页代码里的，安全靠的是 Firestore 的安全规则。
+const DEFAULT_FB_CONFIG = {
+  apiKey: "AIzaSyAHL92dqbQOHkftPaOfeb4hwvbhQMnPaYk",
+  authDomain: "private-tutoring-management.firebaseapp.com",
+  projectId: "private-tutoring-management",
+  storageBucket: "private-tutoring-management.firebasestorage.app",
+  messagingSenderId: "777677498012",
+  appId: "1:777677498012:web:e313b9d6236c8ba94b6f59",
+  measurementId: "G-H9MR8T0YVH"
+};
+
+function getFbConfig(){
+  try{
+    const saved = localStorage.getItem(FB_CONFIG_KEY);
+    if(saved) return JSON.parse(saved);
+  }catch(e){ /* 忽略解析失败，走默认配置 */ }
+  return DEFAULT_FB_CONFIG;
+}
+function setFbConfig(cfg){ localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg)); }
+
+function parseConfigInput(text){
+  // 允许用户直接粘贴 "const firebaseConfig = { ... };" 整段，自动截取花括号部分
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if(start === -1 || end === -1) throw new Error('没有找到 { } 包裹的配置内容');
+  let jsonLike = text.slice(start, end+1);
+  // 把没加引号的 key 转成合法 JSON（Firebase 控制台复制出来的通常本来就是合法 JS 对象）
+  jsonLike = jsonLike.replace(/(['"])?([a-zA-Z0-9_]+)\1?\s*:/g, '"$2":').replace(/'/g, '"');
+  return JSON.parse(jsonLike);
+}
+
+let auth = null;
+
+function initFirebase(){
+  const cfg = getFbConfig();
+  if(!cfg) return false;
+  try{
+    if(!firebaseApp){
+      firebaseApp = firebase.initializeApp(cfg);
+      db = firebase.firestore();
+      auth = firebase.auth();
+    }
+    return true;
+  }catch(err){
+    console.error('Firebase 初始化失败', err);
+    return false;
+  }
+}
+
+async function apiList(collectionName){
+  const snap = await db.collection(collectionName).get();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+async function apiUpsert(collectionName, row){
+  await db.collection(collectionName).doc(row.id).set(row, { merge: true });
+}
+async function apiDelete(collectionName, id){
+  await db.collection(collectionName).doc(id).delete();
+}
+
+/* ================= 应用状态 ================= */
+let students = [];   // {id, name, contact, rate, note}
+let sessions = [];   // {id, studentId, date, time, duration, status, note, paid}
+let connected = false;
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+async function loadData(){
+  if(!getFbConfig() || !initFirebase()){ connected=false; students=[]; sessions=[]; updateConnStatus(); return; }
+  try{
+    const [stu, sess] = await Promise.all([apiList('students'), apiList('sessions')]);
+    students = stu.map(s=>({...s, rate: Number(s.rate)||0}));
+    sessions = sess.map(s=>({...s, duration: Number(s.duration)||0, paid: !!s.paid}));
+    connected = true;
+  }catch(err){
+    connected = false;
+    console.error('读取数据失败', err);
+  }
+  updateConnStatus();
+}
+
+function updateConnStatus(){
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  if(connected){
+    dot.className='dot on'; text.textContent='已连接 Firebase';
+  }else if(getFbConfig()){
+    dot.className='dot off'; text.textContent='连接失败，请检查配置';
+  }else{
+    dot.className='dot off'; text.textContent='未连接 Firebase';
+  }
+  const banner = document.getElementById('calSetupBanner');
+  if(!getFbConfig()){
+    banner.innerHTML = `<div class="setup-banner"><span>还没连接 Firebase，现在添加的数据不会被保存。</span><button class="primary" id="goSettingsBtn" style="flex-shrink:0;">去设置</button></div>`;
+    document.getElementById('goSettingsBtn').addEventListener('click', ()=> switchTab('settings'));
+  }else{
+    banner.innerHTML = '';
+  }
+}
+
+/* ================= 马来西亚公共假期（联邦直辖区 / 全国适用，2026-2027 参考） ================= */
+const HOLIDAYS = {
+  "2026-01-01":"元旦新年","2026-02-01":"大宝森节 / 联邦直辖区日","2026-02-02":"大宝森节（补假）",
+  "2026-02-03":"联邦直辖区日（补假）","2026-02-17":"农历新年","2026-02-18":"农历新年初二",
+  "2026-03-21":"开斋节","2026-03-22":"开斋节第二天","2026-03-23":"开斋节（补假）",
+  "2026-05-01":"劳动节","2026-05-27":"哈芝节","2026-05-31":"卫塞节","2026-06-01":"国家元首诞辰",
+  "2026-06-02":"卫塞节（补假）","2026-06-17":"回历新年","2026-08-25":"先知诞辰","2026-08-31":"国庆日",
+  "2026-09-16":"马来西亚日","2026-11-08":"屠妖节","2026-11-09":"屠妖节（补假）","2026-12-25":"圣诞节",
+  "2027-01-01":"元旦新年","2027-01-22":"大宝森节","2027-02-01":"联邦直辖区日","2027-02-06":"农历新年",
+  "2027-02-07":"农历新年初二","2027-02-08":"农历新年（补假）","2027-03-10":"开斋节","2027-03-11":"开斋节第二天",
+  "2027-05-01":"劳动节","2027-05-17":"哈芝节","2027-05-20":"卫塞节","2027-06-06":"回历新年",
+  "2027-06-07":"国家元首诞辰","2027-08-15":"先知诞辰","2027-08-16":"先知诞辰（补假）","2027-08-31":"国庆日",
+  "2027-09-16":"马来西亚日","2027-10-28":"屠妖节","2027-12-25":"圣诞节"
+};
+
+/* ================= 工具函数 ================= */
+function pad(n){ return n.toString().padStart(2,'0'); }
+function dateKey(y,m,d){ return `${y}-${pad(m+1)}-${pad(d)}`; }
+function todayKey(){ const t=new Date(); return dateKey(t.getFullYear(), t.getMonth(), t.getDate()); }
+function studentById(id){ return students.find(s=>s.id===id); }
+function statusLabel(s){
+  return {scheduled:'已安排',completed:'已完成',leave:'请假',cancelled:'取消'}[s] || s;
+}
+function isBillable(status){ return status==='scheduled' || status==='completed'; }
+function fmtMoney(n){ return n.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ================= 视图切换 ================= */
+const tabBtns = document.querySelectorAll('.tab-btn');
+function switchTab(name){
+  tabBtns.forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  if(name==='students') renderStudents();
+  if(name==='billing') renderBilling();
+  if(name==='settings') renderSettings();
+}
+tabBtns.forEach(btn=> btn.addEventListener('click', ()=> switchTab(btn.dataset.tab)));
+
+/* ================= 日历渲染 ================= */
+let calYear, calMonth;
+const MONTH_NAMES = ["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
+
+function initCalendarDate(){
+  const t = new Date();
+  calYear = t.getFullYear();
+  calMonth = t.getMonth();
+}
+
+function renderCalendar(){
+  document.getElementById('monthLabel').textContent = `${calYear}年 ${MONTH_NAMES[calMonth]}`;
+  const rows = document.getElementById('calRows');
+  rows.innerHTML = '';
+
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const daysInPrevMonth = new Date(calYear, calMonth, 0).getDate();
+  const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
+
+  const tKey = todayKey();
+
+  for(let i=0;i<totalCells;i++){
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
+    let y = calYear, m = calMonth, d;
+    let inMonth = true;
+
+    if(i < firstDay){
+      d = daysInPrevMonth - (firstDay - 1 - i);
+      m = calMonth - 1; y = calMonth===0 ? calYear-1 : calYear;
+      inMonth = false;
+    }else if(i >= firstDay + daysInMonth){
+      d = i - (firstDay + daysInMonth) + 1;
+      m = calMonth + 1; y = calMonth===11 ? calYear+1 : calYear;
+      inMonth = false;
+    }else{
+      d = i - firstDay + 1;
+    }
+    const normM = ((m % 12) + 12) % 12;
+    const key = dateKey(y, normM, d);
+
+    if(!inMonth) cell.classList.add('out');
+    if(key === tKey) cell.classList.add('today');
+
+    const daynum = document.createElement('div');
+    daynum.className = 'daynum';
+    daynum.textContent = d;
+    cell.appendChild(daynum);
+
+    if(HOLIDAYS[key]){
+      const h = document.createElement('div');
+      h.className = 'holiday-flag';
+      h.textContent = HOLIDAYS[key];
+      cell.appendChild(h);
+    }
+
+    const daySessions = sessions.filter(s=>s.date===key).sort((a,b)=>a.time.localeCompare(b.time));
+    const maxShow = 3;
+    daySessions.slice(0,maxShow).forEach(s=>{
+      const chip = document.createElement('div');
+      chip.className = 'sess-chip' + (s.status==='leave' ? ' leave' : s.status==='cancelled' ? ' cancelled' : '');
+      const stu = studentById(s.studentId);
+      chip.textContent = `${s.time} ${stu? stu.name : '（学生已删除）'}`;
+      chip.addEventListener('click', (e)=>{ e.stopPropagation(); openSessModal(key, s.id); });
+      cell.appendChild(chip);
+    });
+    if(daySessions.length > maxShow){
+      const more = document.createElement('div');
+      more.className = 'more-chip';
+      more.textContent = `+${daySessions.length - maxShow} 更多`;
+      cell.appendChild(more);
+    }
+
+    cell.addEventListener('click', ()=> openSessModal(key));
+    rows.appendChild(cell);
+  }
+}
+
+document.getElementById('prevMonth').addEventListener('click', ()=>{
+  calMonth--; if(calMonth<0){ calMonth=11; calYear--; } renderCalendar();
+});
+document.getElementById('nextMonth').addEventListener('click', ()=>{
+  calMonth++; if(calMonth>11){ calMonth=0; calYear++; } renderCalendar();
+});
+document.getElementById('todayBtn').addEventListener('click', ()=>{
+  initCalendarDate(); renderCalendar();
+});
+
+/* ================= 排课 Modal ================= */
+const sessModal = document.getElementById('sessModal');
+let editingSessId = null;
+let modalDateKey = null;
+
+function refreshStudentSelect(){
+  const sel = document.getElementById('f-student');
+  sel.innerHTML = '';
+  if(students.length===0){
+    const opt = document.createElement('option');
+    opt.textContent = '请先到"学生"页添加学生';
+    opt.disabled = true; opt.selected = true;
+    sel.appendChild(opt);
+    return;
+  }
+  students.forEach(s=>{
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = `${s.name}（RM${s.rate}/小时）`;
+    sel.appendChild(opt);
+  });
+}
+
+function openSessModal(key, sessId){
+  if(!getFbConfig()){ switchTab('settings'); return; }
+  modalDateKey = key;
+  editingSessId = sessId || null;
+  refreshStudentSelect();
+
+  const [y,m,d] = key.split('-');
+  document.getElementById('sessModalDate').textContent = `${y}年${parseInt(m)}月${parseInt(d)}日` + (HOLIDAYS[key] ? `　·　${HOLIDAYS[key]}` : '');
+
+  if(editingSessId){
+    const s = sessions.find(x=>x.id===editingSessId);
+    document.getElementById('sessModalTitle').textContent = '编辑课程';
+    document.getElementById('f-student').value = s.studentId;
+    document.getElementById('f-time').value = s.time;
+    document.getElementById('f-duration').value = s.duration;
+    document.getElementById('f-note').value = s.note || '';
+    document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value===s.status));
+    document.getElementById('deleteSessBtn').style.display = 'inline';
+  }else{
+    document.getElementById('sessModalTitle').textContent = '添加课程';
+    document.getElementById('f-time').value = '16:00';
+    document.getElementById('f-duration').value = 1;
+    document.getElementById('f-note').value = '';
+    document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value==='scheduled'));
+    document.getElementById('deleteSessBtn').style.display = 'none';
+  }
+  sessModal.classList.add('active');
+}
+function closeSessModal(){ sessModal.classList.remove('active'); }
+
+document.getElementById('cancelSessBtn').addEventListener('click', closeSessModal);
+sessModal.addEventListener('click', (e)=>{ if(e.target===sessModal) closeSessModal(); });
+
+document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
+  if(students.length===0){ alert('请先添加至少一位学生'); return; }
+  const studentId = document.getElementById('f-student').value;
+  const time = document.getElementById('f-time').value;
+  const duration = parseFloat(document.getElementById('f-duration').value) || 0;
+  const note = document.getElementById('f-note').value.trim();
+  const status = document.querySelector('#f-status input:checked').value;
+
+  const saveBtn = document.getElementById('saveSessBtn');
+  saveBtn.textContent = '保存中...'; saveBtn.disabled = true;
+
+  let row;
+  if(editingSessId){
+    const s = sessions.find(x=>x.id===editingSessId);
+    Object.assign(s, {studentId, time, duration, note, status});
+    row = s;
+  }else{
+    row = {id:uid(), date:modalDateKey, studentId, time, duration, note, status, paid:false};
+    sessions.push(row);
+  }
+  try{
+    await apiUpsert('sessions', row);
+    closeSessModal();
+    renderCalendar();
+  }catch(err){
+    alert('保存失败：' + err.message);
+  }
+  saveBtn.textContent = '保存'; saveBtn.disabled = false;
+});
+
+document.getElementById('deleteSessBtn').addEventListener('click', async ()=>{
+  if(!confirm('确定删除这节课的记录吗？')) return;
+  try{
+    await apiDelete('sessions', editingSessId);
+    sessions = sessions.filter(x=>x.id!==editingSessId);
+    closeSessModal();
+    renderCalendar();
+  }catch(err){
+    alert('删除失败：' + err.message);
+  }
+});
+
+/* ================= 学生管理 ================= */
+const studentModal = document.getElementById('studentModal');
+let editingStudentId = null;
+
+function renderStudents(){
+  const list = document.getElementById('studentList');
+  list.innerHTML = '';
+  if(students.length===0){
+    list.innerHTML = '<div class="empty">还没有学生，点击右上角"添加学生"开始设置吧</div>';
+    return;
+  }
+  students.forEach(s=>{
+    const row = document.createElement('div');
+    row.className = 'student-row';
+    row.innerHTML = `
+      <div>
+        <div class="student-name">${escapeHtml(s.name)}</div>
+        <div class="student-meta">${s.contact ? escapeHtml(s.contact) : '未填写联系方式'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div>
+      </div>
+      <div class="row-actions">
+        <span class="rate-tag">RM ${s.rate}/小时</span>
+        <button class="icon-btn edit-s" data-id="${s.id}">✎</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.edit-s').forEach(btn=>{
+    btn.addEventListener('click', ()=> openStudentModal(btn.dataset.id));
+  });
+}
+
+function openStudentModal(id){
+  if(!getFbConfig()){ switchTab('settings'); return; }
+  editingStudentId = id || null;
+  if(id){
+    const s = studentById(id);
+    document.getElementById('studentModalTitle').textContent = '编辑学生';
+    document.getElementById('s-name').value = s.name;
+    document.getElementById('s-contact').value = s.contact || '';
+    document.getElementById('s-rate').value = s.rate;
+    document.getElementById('s-note').value = s.note || '';
+    document.getElementById('deleteStudentBtn').style.display = 'inline';
+  }else{
+    document.getElementById('studentModalTitle').textContent = '添加学生';
+    document.getElementById('s-name').value = '';
+    document.getElementById('s-contact').value = '';
+    document.getElementById('s-rate').value = '';
+    document.getElementById('s-note').value = '';
+    document.getElementById('deleteStudentBtn').style.display = 'none';
+  }
+  studentModal.classList.add('active');
+}
+function closeStudentModal(){ studentModal.classList.remove('active'); }
+
+document.getElementById('addStudentBtn').addEventListener('click', ()=> openStudentModal(null));
+document.getElementById('cancelStudentBtn').addEventListener('click', closeStudentModal);
+studentModal.addEventListener('click', (e)=>{ if(e.target===studentModal) closeStudentModal(); });
+
+document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
+  const name = document.getElementById('s-name').value.trim();
+  const contact = document.getElementById('s-contact').value.trim();
+  const rate = parseFloat(document.getElementById('s-rate').value) || 0;
+  const note = document.getElementById('s-note').value.trim();
+  if(!name){ alert('请填写学生姓名'); return; }
+
+  const saveBtn = document.getElementById('saveStudentBtn');
+  saveBtn.textContent = '保存中...'; saveBtn.disabled = true;
+
+  let row;
+  if(editingStudentId){
+    row = studentById(editingStudentId);
+    Object.assign(row, {name, contact, rate, note});
+  }else{
+    row = {id:uid(), name, contact, rate, note};
+    students.push(row);
+  }
+  try{
+    await apiUpsert('students', row);
+    closeStudentModal();
+    renderStudents();
+    renderCalendar();
+  }catch(err){
+    alert('保存失败：' + err.message);
+  }
+  saveBtn.textContent = '保存'; saveBtn.disabled = false;
+});
+
+document.getElementById('deleteStudentBtn').addEventListener('click', async ()=>{
+  if(!confirm('删除该学生不会删除已排的课程，但课程会显示"学生已删除"。确定删除吗？')) return;
+  try{
+    await apiDelete('students', editingStudentId);
+    students = students.filter(x=>x.id!==editingStudentId);
+    closeStudentModal();
+    renderStudents();
+    renderCalendar();
+  }catch(err){
+    alert('删除失败：' + err.message);
+  }
+});
+
+/* ================= 账本 ================= */
+let billYear, billMonth;
+
+function initBillDate(){
+  const t = new Date();
+  billYear = t.getFullYear();
+  billMonth = t.getMonth();
+}
+
+function renderBilling(){
+  document.getElementById('billMonthLabel').textContent = `${billYear}年 ${MONTH_NAMES[billMonth]}`;
+  const prefix = `${billYear}-${pad(billMonth+1)}`;
+  const monthSessions = sessions.filter(s=>s.date.startsWith(prefix)).sort((a,b)=> a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+  document.getElementById('billingSub').textContent = `共 ${monthSessions.length} 条课程记录`;
+
+  let totalHours=0, totalAmount=0, unpaidAmount=0;
+  const body = document.getElementById('billBody');
+  body.innerHTML = '';
+
+  monthSessions.forEach(s=>{
+    const stu = studentById(s.studentId);
+    const rate = stu ? stu.rate : 0;
+    const billable = isBillable(s.status);
+    const amount = billable ? s.duration * rate : 0;
+    if(billable){
+      totalHours += s.duration;
+      totalAmount += amount;
+      if(!s.paid) unpaidAmount += amount;
+    }
+
+    const tr = document.createElement('tr');
+    const [,mm,dd] = s.date.split('-');
+    tr.innerHTML = `
+      <td class="mono">${parseInt(mm)}/${parseInt(dd)}　${s.time}</td>
+      <td>${stu ? escapeHtml(stu.name) : '（已删除）'}</td>
+      <td class="mono">${s.duration}h</td>
+      <td><span class="status-tag ${s.status}">${statusLabel(s.status)}</span></td>
+      <td class="mono">${billable ? fmtMoney(amount) : '—'}</td>
+      <td></td>
+    `;
+    const payTd = tr.lastElementChild;
+    if(billable){
+      const btn = document.createElement('button');
+      btn.className = 'paid-toggle ' + (s.paid ? 'paid' : 'unpaid');
+      btn.textContent = s.paid ? '已收款' : '未收款';
+      btn.addEventListener('click', async ()=>{
+        const prev = s.paid;
+        s.paid = !s.paid;
+        btn.disabled = true;
+        try{
+          await apiUpsert('sessions', s);
+          renderBilling();
+        }catch(err){
+          s.paid = prev;
+          alert('更新失败：' + err.message);
+          btn.disabled = false;
+        }
+      });
+      payTd.appendChild(btn);
+    }else{
+      payTd.textContent = '—';
+    }
+    body.appendChild(tr);
+  });
+
+  document.getElementById('billEmpty').style.display = monthSessions.length===0 ? 'block' : 'none';
+  document.getElementById('statHours').textContent = totalHours;
+  document.getElementById('statTotal').textContent = fmtMoney(totalAmount);
+  document.getElementById('statUnpaid').textContent = fmtMoney(unpaidAmount);
+}
+
+document.getElementById('prevBillMonth').addEventListener('click', ()=>{
+  billMonth--; if(billMonth<0){ billMonth=11; billYear--; } renderBilling();
+});
+document.getElementById('nextBillMonth').addEventListener('click', ()=>{
+  billMonth++; if(billMonth>11){ billMonth=0; billYear++; } renderBilling();
+});
+
+/* ================= 设置 ================= */
+function renderSettings(){
+  const cfg = getFbConfig();
+  document.getElementById('fbConfigInput').value = cfg ? JSON.stringify(cfg, null, 2) : '';
+  document.getElementById('settingsMsg').textContent = '';
+}
+
+document.getElementById('saveFbBtn').addEventListener('click', async ()=>{
+  const raw = document.getElementById('fbConfigInput').value.trim();
+  const msg = document.getElementById('settingsMsg');
+  if(!raw){ msg.className='settings-msg err'; msg.textContent='请先粘贴配置内容'; return; }
+  let cfg;
+  try{ cfg = parseConfigInput(raw); }
+  catch(err){ msg.className='settings-msg err'; msg.textContent='配置格式看不懂：' + err.message; return; }
+  setFbConfig(cfg);
+  firebaseApp = null; db = null; // 强制用新配置重新初始化
+  msg.className='settings-msg'; msg.textContent='连接中...';
+  await loadData();
+  if(connected){
+    msg.className='settings-msg ok'; msg.textContent='✓ 连接成功，数据已加载';
+    renderCalendar(); renderStudents(); renderBilling();
+  }else{
+    msg.className='settings-msg err'; msg.textContent='连接失败，请检查配置内容是否完整、Firestore 是否已开启';
+  }
+});
+
+document.getElementById('testFbBtn').addEventListener('click', async ()=>{
+  const raw = document.getElementById('fbConfigInput').value.trim();
+  const msg = document.getElementById('settingsMsg');
+  if(!raw){ msg.className='settings-msg err'; msg.textContent='请先粘贴配置内容'; return; }
+  let cfg;
+  try{ cfg = parseConfigInput(raw); }
+  catch(err){ msg.className='settings-msg err'; msg.textContent='配置格式看不懂：' + err.message; return; }
+  msg.className='settings-msg'; msg.textContent='测试中...';
+  try{
+    const tempApp = firebase.initializeApp(cfg, 'test-' + Date.now());
+    const tempDb = tempApp.firestore();
+    const snap = await tempDb.collection('students').limit(1).get();
+    msg.className='settings-msg ok'; msg.textContent = `✓ 连接正常，Firestore 可读写`;
+  }catch(err){
+    msg.className='settings-msg err'; msg.textContent='连接失败：' + err.message;
+  }
+});
+
+/* ================= 登录 / 启动 ================= */
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const msg = document.getElementById('loginMsg');
+  const btn = document.getElementById('loginBtn');
+  if(!email || !password){ msg.textContent = '请输入邮箱和密码'; return; }
+  if(!initFirebase()){ msg.textContent = 'Firebase 初始化失败'; return; }
+  btn.textContent = '登录中...'; btn.disabled = true;
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+    msg.textContent = '';
+  }catch(err){
+    const map = {
+      'auth/invalid-email':'邮箱格式不对',
+      'auth/user-not-found':'这个邮箱还没有在 Firebase 里建账号',
+      'auth/wrong-password':'密码不对',
+      'auth/invalid-credential':'邮箱或密码不对',
+      'auth/too-many-requests':'尝试次数太多，请稍后再试'
+    };
+    msg.textContent = map[err.code] || ('登录失败：' + err.message);
+  }
+  btn.textContent = '登录'; btn.disabled = false;
+}
+
+document.getElementById('signOutBtn').addEventListener('click', ()=>{
+  if(auth) auth.signOut();
+});
+
+(async function init(){
+  initCalendarDate();
+  initBillDate();
+  if(!initFirebase()){
+    document.getElementById('loginMsg').textContent = 'Firebase 配置有问题，请检查设置';
+    return;
+  }
+  auth.onAuthStateChanged(async (user)=>{
+    if(user){
+      document.getElementById('loginMask').style.display = 'none';
+      document.getElementById('appRoot').style.display = 'flex';
+      await loadData();
+      renderCalendar();
+      renderStudents();
+      renderBilling();
+    }else{
+      document.getElementById('loginMask').style.display = 'flex';
+      document.getElementById('appRoot').style.display = 'none';
+    }
+  });
+})();
+</script>
+</body>
+</html>
