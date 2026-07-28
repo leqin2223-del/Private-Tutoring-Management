@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
   :root{
     --ink:#1F2B3E;
@@ -379,6 +380,32 @@
   .modal-actions .right{ display:flex; gap:8px; }
   .danger-link{ all:unset; cursor:pointer; font-size:12.5px; color:var(--rose); }
 
+  /* ---- 登录页 ---- */
+  .login-mask{
+    position:fixed; inset:0;
+    background:var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    z-index:100;
+  }
+  .login-box{
+    background:var(--paper-raised);
+    border-radius:12px;
+    width:100%; max-width:340px;
+    padding:32px 28px;
+  }
+  .login-box h1{ font-size:22px; margin-bottom:4px; }
+  .login-box p{ font-size:12.5px; color:var(--muted); margin-bottom:22px; }
+  .login-box .field{ margin-bottom:12px; }
+  .login-box button.primary{ width:100%; text-align:center; padding:11px; margin-top:6px; }
+  .login-msg{ font-size:12.5px; color:var(--rose); margin-top:10px; min-height:16px; }
+  .signout-btn{
+    all:unset; cursor:pointer;
+    font-size:11.5px; color:#B9B2A0;
+    padding:6px 24px 0;
+    display:block;
+  }
+  .signout-btn:hover{ color:#fff; }
+
   @media (max-width:760px){
     .app{ flex-direction:column; }
     .sidebar{ width:100%; padding:16px 0; }
@@ -393,7 +420,24 @@
 </head>
 <body>
 
-<div class="app">
+<div class="login-mask" id="loginMask">
+  <div class="login-box">
+    <h1>家教手记</h1>
+    <p>请先登录，才能查看和编辑你的课表与账本</p>
+    <div class="field">
+      <label>邮箱</label>
+      <input type="email" id="login-email" placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="login-password" placeholder="••••••••">
+    </div>
+    <button class="primary" id="loginBtn">登录</button>
+    <div class="login-msg" id="loginMsg"></div>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
   <div class="sidebar">
     <div class="brand">
       <h1>家教手记</h1>
@@ -409,6 +453,7 @@
       <span class="dot off" id="connDot"></span>
       <span id="connText">未连接 Firebase</span>
     </div>
+    <button class="signout-btn" id="signOutBtn">退出登录</button>
   </div>
 
   <div class="main">
@@ -497,15 +542,15 @@
         <div class="settings-msg" id="settingsMsg"></div>
       </div>
       <div class="card">
-        <h3 style="font-size:15px; margin-bottom:8px;">正式使用前，记得改一下安全规则</h3>
+        <h3 style="font-size:15px; margin-bottom:8px;">安全规则（配合登录使用）</h3>
         <div class="sub" style="line-height:1.7; margin-bottom:10px;">
-          「测试模式」默认30天后会自动锁死，而且这段时间内任何人只要知道你的项目配置就能读写。等你确认一切正常后，去 Firestore 的「规则」页，把内容换成下面这样（依然不需要登录，但只允许操作这两个集合，比完全开放稍微收紧一点）：
+          现在工具已经要求先登录才能进入，Firestore 的安全规则也应该同步收紧成"只有登录用户才能读写"。去 Firestore 的「规则」页，把内容换成：
         </div>
         <div class="rules-block">rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /students/{id} { allow read, write: if true; }
-    match /sessions/{id} { allow read, write: if true; }
+    match /students/{id} { allow read, write: if request.auth != null; }
+    match /sessions/{id} { allow read, write: if request.auth != null; }
   }
 }</div>
       </div>
@@ -627,6 +672,8 @@ function parseConfigInput(text){
   return JSON.parse(jsonLike);
 }
 
+let auth = null;
+
 function initFirebase(){
   const cfg = getFbConfig();
   if(!cfg) return false;
@@ -634,6 +681,7 @@ function initFirebase(){
     if(!firebaseApp){
       firebaseApp = firebase.initializeApp(cfg);
       db = firebase.firestore();
+      auth = firebase.auth();
     }
     return true;
   }catch(err){
@@ -1146,14 +1194,58 @@ document.getElementById('testFbBtn').addEventListener('click', async ()=>{
   }
 });
 
-/* ================= 启动 ================= */
+/* ================= 登录 / 启动 ================= */
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const msg = document.getElementById('loginMsg');
+  const btn = document.getElementById('loginBtn');
+  if(!email || !password){ msg.textContent = '请输入邮箱和密码'; return; }
+  if(!initFirebase()){ msg.textContent = 'Firebase 初始化失败'; return; }
+  btn.textContent = '登录中...'; btn.disabled = true;
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+    msg.textContent = '';
+  }catch(err){
+    const map = {
+      'auth/invalid-email':'邮箱格式不对',
+      'auth/user-not-found':'这个邮箱还没有在 Firebase 里建账号',
+      'auth/wrong-password':'密码不对',
+      'auth/invalid-credential':'邮箱或密码不对',
+      'auth/too-many-requests':'尝试次数太多，请稍后再试'
+    };
+    msg.textContent = map[err.code] || ('登录失败：' + err.message);
+  }
+  btn.textContent = '登录'; btn.disabled = false;
+}
+
+document.getElementById('signOutBtn').addEventListener('click', ()=>{
+  if(auth) auth.signOut();
+});
+
 (async function init(){
   initCalendarDate();
   initBillDate();
-  await loadData();
-  renderCalendar();
-  renderStudents();
-  renderBilling();
+  if(!initFirebase()){
+    document.getElementById('loginMsg').textContent = 'Firebase 配置有问题，请检查设置';
+    return;
+  }
+  auth.onAuthStateChanged(async (user)=>{
+    if(user){
+      document.getElementById('loginMask').style.display = 'none';
+      document.getElementById('appRoot').style.display = 'flex';
+      await loadData();
+      renderCalendar();
+      renderStudents();
+      renderBilling();
+    }else{
+      document.getElementById('loginMask').style.display = 'flex';
+      document.getElementById('appRoot').style.display = 'none';
+    }
+  });
 })();
 </script>
 </body>
