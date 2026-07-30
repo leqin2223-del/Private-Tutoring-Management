@@ -221,7 +221,10 @@
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
+    cursor:grab;
   }
+  .sess-chip:active{ cursor:grabbing; }
+  .cal-cell.drag-over{ outline:2px dashed var(--sage); outline-offset:-2px; background:#F0F5EE; }
   .sess-chip.leave{ background:var(--rose-tint); color:var(--rose); text-decoration:line-through; }
   .sess-chip.cancelled{ background:#EDEAE0; color:var(--muted); text-decoration:line-through; }
   .more-chip{ font-size:10px; color:var(--muted); }
@@ -645,8 +648,14 @@ service cloud.firestore {
         </div>
       </div>
     </div>
+    <div class="field" id="seriesEditField" style="display:none;">
+      <label><input type="checkbox" id="f-apply-series" style="width:auto; margin-right:6px;">同时更新这个系列「今天起」的所有课程</label>
+    </div>
     <div class="modal-actions">
-      <button class="danger-link" id="deleteSessBtn" style="display:none;">删除这节课</button>
+      <div class="left" style="display:flex; gap:14px;">
+        <button class="danger-link" id="deleteSessBtn" style="display:none;">删除这节课</button>
+        <button class="danger-link" id="deleteSeriesBtn" style="display:none;">删除系列（今天起）</button>
+      </div>
       <div class="right">
         <button class="ghost" id="cancelSessBtn">取消</button>
         <button class="primary" id="saveSessBtn">保存</button>
@@ -847,7 +856,13 @@ function addMinutesToTime(time, minutesToAdd){
   const total = ((timeToMinutes(time) + minutesToAdd) % 1440 + 1440) % 1440;
   return pad(Math.floor(total/60)) + ':' + pad(total%60);
 }
-function formatTimeRange(s){ return `${s.time}–${addMinutesToTime(s.time, s.duration*60)}`; }
+function formatAmPm(time){
+  let [h,m] = time.split(':').map(Number);
+  const ap = h>=12 ? 'PM' : 'AM';
+  h = h % 12; if(h===0) h = 12;
+  return `${h}:${pad(m)}${ap}`;
+}
+function formatTimeRange(s){ return `${formatAmPm(s.time)}–${formatAmPm(addMinutesToTime(s.time, s.duration*60))}`; }
 
 function sessionsOverlap(aStart, aDur, bStart, bDur){
   const aS = timeToMinutes(aStart), aE = aS + aDur*60;
@@ -961,6 +976,12 @@ function renderCalendar(){
         chip.style.color = c.fg;
       }
       chip.textContent = `${formatTimeRange(s)} ${stu? stu.name : '（学生已删除）'}`;
+      chip.draggable = true;
+      chip.addEventListener('dragstart', (e)=>{
+        e.stopPropagation();
+        e.dataTransfer.setData('text/plain', s.id);
+        e.dataTransfer.effectAllowed = 'move';
+      });
       chip.addEventListener('click', (e)=>{ e.stopPropagation(); openSessModal(key, s.id); });
       cell.appendChild(chip);
     });
@@ -972,6 +993,31 @@ function renderCalendar(){
     }
 
     cell.addEventListener('click', ()=> openSessModal(key));
+    cell.addEventListener('dragover', (e)=>{ e.preventDefault(); cell.classList.add('drag-over'); });
+    cell.addEventListener('dragleave', ()=> cell.classList.remove('drag-over'));
+    cell.addEventListener('drop', async (e)=>{
+      e.preventDefault();
+      cell.classList.remove('drag-over');
+      const sessId = e.dataTransfer.getData('text/plain');
+      const s = sessions.find(x=>x.id===sessId);
+      if(!s || s.date===key) return;
+      const isOccupying = (s.status!=='leave' && s.status!=='cancelled');
+      if(isOccupying){
+        const conflict = findConflict(key, s.time, s.duration, s.id);
+        if(conflict){ alert(formatConflictMsg(conflict)); return; }
+      }
+      const prevDate = s.date;
+      s.date = key;
+      try{
+        await apiUpsert('sessions', s);
+        renderCalendar();
+        renderOverview();
+      }catch(err){
+        s.date = prevDate;
+        alert('移动失败：' + err.message);
+        renderCalendar();
+      }
+    });
     rows.appendChild(cell);
   }
 }
@@ -1028,6 +1074,14 @@ function openSessModal(key, sessId){
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value===s.status));
     document.getElementById('deleteSessBtn').style.display = 'inline';
     document.getElementById('recurringField').style.display = 'none';
+    document.getElementById('f-apply-series').checked = false;
+    if(s.seriesId){
+      document.getElementById('seriesEditField').style.display = 'block';
+      document.getElementById('deleteSeriesBtn').style.display = 'inline';
+    }else{
+      document.getElementById('seriesEditField').style.display = 'none';
+      document.getElementById('deleteSeriesBtn').style.display = 'none';
+    }
   }else{
     document.getElementById('sessModalTitle').textContent = '添加课程';
     document.getElementById('f-time').value = '16:00';
@@ -1035,6 +1089,8 @@ function openSessModal(key, sessId){
     document.getElementById('f-note').value = '';
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value==='scheduled'));
     document.getElementById('deleteSessBtn').style.display = 'none';
+    document.getElementById('deleteSeriesBtn').style.display = 'none';
+    document.getElementById('seriesEditField').style.display = 'none';
     document.getElementById('recurringField').style.display = 'block';
     document.getElementById('f-recurring').checked = false;
     document.getElementById('recurringWeeksRow').style.display = 'none';
@@ -1064,22 +1120,43 @@ document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
 
   try{
     if(editingSessId){
-      if(isOccupying){
-        const conflict = findConflict(modalDateKey, time, duration, editingSessId);
-        if(conflict){ alert(formatConflictMsg(conflict)); saveBtn.textContent='保存'; saveBtn.disabled=false; return; }
+      const applySeries = document.getElementById('f-apply-series').checked;
+      const original = sessions.find(x=>x.id===editingSessId);
+      if(applySeries && original.seriesId){
+        const seriesId = original.seriesId;
+        const fromDate = original.date;
+        const targets = sessions.filter(x=>x.seriesId===seriesId && x.date>=fromDate);
+        let updated = 0, skipped = [];
+        for(const t of targets){
+          if(isOccupying){
+            const conflict = findConflict(t.date, time, duration, t.id);
+            if(conflict){ skipped.push(t.date); continue; }
+          }
+          Object.assign(t, {studentId, time, duration, note, status});
+          await apiUpsert('sessions', t);
+          updated++;
+        }
+        if(skipped.length){
+          alert(`已更新 ${updated} 节课，其中 ${skipped.length} 天因时间冲突未更新：${skipped.join('、')}`);
+        }
+      }else{
+        if(isOccupying){
+          const conflict = findConflict(modalDateKey, time, duration, editingSessId);
+          if(conflict){ alert(formatConflictMsg(conflict)); saveBtn.textContent='保存'; saveBtn.disabled=false; return; }
+        }
+        Object.assign(original, {studentId, time, duration, note, status});
+        await apiUpsert('sessions', original);
       }
-      const s = sessions.find(x=>x.id===editingSessId);
-      Object.assign(s, {studentId, time, duration, note, status});
-      await apiUpsert('sessions', s);
     }else{
       const isRecurring = document.getElementById('f-recurring').checked;
       if(isRecurring){
         const weeks = parseInt(document.getElementById('f-recurring-weeks').value) || 1;
         const dates = generateRecurringDates(modalDateKey, weeks);
+        const seriesId = uid();
         let created = 0, skipped = [];
         for(const d of dates){
           if(isOccupying && findConflict(d, time, duration, null)){ skipped.push(d); continue; }
-          const row = {id:uid(), date:d, studentId, time, duration, note, status, paid:false};
+          const row = {id:uid(), date:d, studentId, time, duration, note, status, paid:false, seriesId};
           sessions.push(row);
           await apiUpsert('sessions', row);
           created++;
@@ -1111,6 +1188,25 @@ document.getElementById('deleteSessBtn').addEventListener('click', async ()=>{
   try{
     await apiDelete('sessions', editingSessId);
     sessions = sessions.filter(x=>x.id!==editingSessId);
+    closeSessModal();
+    renderCalendar();
+    renderOverview();
+  }catch(err){
+    alert('删除失败：' + err.message);
+  }
+});
+
+document.getElementById('deleteSeriesBtn').addEventListener('click', async ()=>{
+  const original = sessions.find(x=>x.id===editingSessId);
+  if(!original || !original.seriesId) return;
+  const targets = sessions.filter(x=>x.seriesId===original.seriesId && x.date>=original.date);
+  if(!confirm(`确定删除这个系列「今天起」的 ${targets.length} 节课吗？（今天以前的记录会保留）`)) return;
+  try{
+    for(const t of targets){
+      await apiDelete('sessions', t.id);
+    }
+    const idsToRemove = new Set(targets.map(t=>t.id));
+    sessions = sessions.filter(x=>!idsToRemove.has(x.id));
     closeSessModal();
     renderCalendar();
     renderOverview();
