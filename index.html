@@ -180,6 +180,7 @@
   }
   .cal-cell{
     min-height:104px;
+    min-width:0;
     border-right:1px solid var(--line);
     border-bottom:1px solid var(--line);
     padding:6px 6px 8px;
@@ -222,6 +223,8 @@
     overflow:hidden;
     text-overflow:ellipsis;
     cursor:grab;
+    max-width:100%;
+    box-sizing:border-box;
   }
   .sess-chip:active{ cursor:grabbing; }
   .cal-cell.drag-over{ outline:2px dashed var(--sage); outline-offset:-2px; background:#F0F5EE; }
@@ -604,6 +607,22 @@ service cloud.firestore {
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ===== 当天课程清单 Modal ===== -->
+<div class="modal-mask" id="dayModal">
+  <div class="modal">
+    <h3 id="dayModalTitle"></h3>
+    <div class="modal-sub" id="dayModalSub"></div>
+    <div id="dayModalList" style="display:flex; flex-direction:column; margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="closeDayModalBtn">关闭</button>
+        <button class="primary" id="addFromDayModalBtn">+ 添加课程</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -996,11 +1015,11 @@ function renderCalendar(){
     if(daySessions.length > maxShow){
       const more = document.createElement('div');
       more.className = 'more-chip';
-      more.textContent = `+${daySessions.length - maxShow} 更多`;
+      more.textContent = `共${daySessions.length}节，点击查看全部`;
       cell.appendChild(more);
     }
 
-    cell.addEventListener('click', ()=> openSessModal(key));
+    cell.addEventListener('click', ()=> openDayModal(key));
     cell.addEventListener('dragover', (e)=>{ e.preventDefault(); cell.classList.add('drag-over'); });
     cell.addEventListener('dragleave', ()=> cell.classList.remove('drag-over'));
     cell.addEventListener('drop', async (e)=>{
@@ -1038,6 +1057,45 @@ document.getElementById('nextMonth').addEventListener('click', ()=>{
 });
 document.getElementById('todayBtn').addEventListener('click', ()=>{
   initCalendarDate(); renderCalendar();
+});
+
+/* ================= 当天课程清单 Modal ================= */
+let dayModalDateKey = null;
+function openDayModal(key){
+  dayModalDateKey = key;
+  const [y,m,d] = key.split('-');
+  document.getElementById('dayModalTitle').textContent = `${y}年${parseInt(m)}月${parseInt(d)}日`;
+  document.getElementById('dayModalSub').textContent = HOLIDAYS[key] || '';
+  const list = document.getElementById('dayModalList');
+  list.innerHTML = '';
+  const daySessions = sessions.filter(s=>s.date===key).sort((a,b)=>a.time.localeCompare(b.time));
+  if(daySessions.length===0){
+    list.innerHTML = '<div class="empty">这天还没有课程</div>';
+  }else{
+    daySessions.forEach(s=>{
+      const stu = studentById(s.studentId);
+      const row = document.createElement('div');
+      row.className = 'student-row';
+      row.style.cursor = 'pointer';
+      row.innerHTML = `
+        <div>
+          <div class="student-name">${stu ? escapeHtml(stu.name) : '（学生已删除）'}</div>
+          <div class="student-meta">${formatTimeRange(s)}</div>
+        </div>
+        <span class="status-tag ${s.status}">${statusLabel(s.status)}</span>
+      `;
+      row.addEventListener('click', ()=>{ closeDayModal(); openSessModal(key, s.id); });
+      list.appendChild(row);
+    });
+  }
+  document.getElementById('dayModal').classList.add('active');
+}
+function closeDayModal(){ document.getElementById('dayModal').classList.remove('active'); }
+document.getElementById('closeDayModalBtn').addEventListener('click', closeDayModal);
+document.getElementById('dayModal').addEventListener('click', (e)=>{ if(e.target.id==='dayModal') closeDayModal(); });
+document.getElementById('addFromDayModalBtn').addEventListener('click', ()=>{
+  closeDayModal();
+  openSessModal(dayModalDateKey);
 });
 
 /* ================= 排课 Modal ================= */
