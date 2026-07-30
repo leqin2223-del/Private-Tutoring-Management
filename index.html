@@ -444,10 +444,11 @@
       <p>日程 &amp; 收费账本</p>
     </div>
     <div class="tabs">
-      <button class="tab-btn active" data-tab="cal"><span class="idx">01</span>日历</button>
-      <button class="tab-btn" data-tab="students"><span class="idx">02</span>学生</button>
-      <button class="tab-btn" data-tab="billing"><span class="idx">03</span>账本</button>
-      <button class="tab-btn" data-tab="settings"><span class="idx">04</span>设置</button>
+      <button class="tab-btn active" data-tab="overview"><span class="idx">01</span>总览</button>
+      <button class="tab-btn" data-tab="cal"><span class="idx">02</span>日历</button>
+      <button class="tab-btn" data-tab="students"><span class="idx">03</span>学生</button>
+      <button class="tab-btn" data-tab="billing"><span class="idx">04</span>账本</button>
+      <button class="tab-btn" data-tab="settings"><span class="idx">05</span>设置</button>
     </div>
     <div class="conn-dot">
       <span class="dot off" id="connDot"></span>
@@ -458,8 +459,42 @@
 
   <div class="main">
 
+    <!-- ===== 总览 ===== -->
+    <div class="view active" id="view-overview">
+      <div class="view-head">
+        <div>
+          <h2>总览</h2>
+          <div class="sub" id="overviewSub"></div>
+        </div>
+      </div>
+      <div class="summary-strip">
+        <div class="stat"><div class="label">学生总数</div><div class="value mono" id="ovStudentCount">0</div></div>
+        <div class="stat ok"><div class="label">本月预计收入 (RM)</div><div class="value mono" id="ovMonthIncome">0</div></div>
+        <div class="stat warn"><div class="label">本月未收款 (RM)</div><div class="value mono" id="ovMonthUnpaid">0</div></div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px; margin-bottom:12px;">按学生查看本月上课情况</h3>
+        <div class="field" style="max-width:280px;">
+          <label>选择学生</label>
+          <select id="ov-student-select"></select>
+        </div>
+        <div id="ovStudentDetail" style="margin-top:10px; font-size:13.5px; color:var(--ink-soft); line-height:1.7;"></div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px; margin-bottom:12px;">全部学生欠款总览（不分月份）</h3>
+        <table class="bill-table">
+          <thead><tr><th>学生</th><th>累计未收 (RM)</th></tr></thead>
+          <tbody id="ovUnpaidBody"></tbody>
+        </table>
+        <div class="empty" id="ovUnpaidEmpty" style="display:none;">目前没有未收款项</div>
+      </div>
+      <div class="summary-strip">
+        <div class="stat ok"><div class="label" id="ovYearLabel">今年累计收入 (RM)</div><div class="value mono" id="ovYearIncome">0</div></div>
+      </div>
+    </div>
+
     <!-- ===== 日历 ===== -->
-    <div class="view active" id="view-cal">
+    <div class="view" id="view-cal">
       <div class="view-head">
         <div>
           <h2>课程日历</h2>
@@ -542,6 +577,16 @@
         <div class="settings-msg" id="settingsMsg"></div>
       </div>
       <div class="card">
+        <h3 style="font-size:15px; margin-bottom:8px;">导出数据备份</h3>
+        <div class="sub" style="line-height:1.7; margin-bottom:10px;">
+          把当前所有学生和课程记录导出成 CSV 文件，可以直接用 Excel 打开，建议定期导出备份一次。
+        </div>
+        <div class="settings-actions">
+          <button class="ghost" id="exportStudentsBtn">导出学生名单</button>
+          <button class="ghost" id="exportSessionsBtn">导出课程记录</button>
+        </div>
+      </div>
+      <div class="card">
         <h3 style="font-size:15px; margin-bottom:8px;">安全规则（配合登录使用）</h3>
         <div class="sub" style="line-height:1.7; margin-bottom:10px;">
           现在工具已经要求先登录才能进入，Firestore 的安全规则也应该同步收紧成"只有登录用户才能读写"。去 Firestore 的「规则」页，把内容换成：
@@ -591,6 +636,15 @@ service cloud.firestore {
       <label>备注（选填）</label>
       <textarea id="f-note" placeholder="例如：复习范围、教材页数..."></textarea>
     </div>
+    <div class="field" id="recurringField">
+      <label><input type="checkbox" id="f-recurring" style="width:auto; margin-right:6px;">每周重复</label>
+      <div class="field-row" id="recurringWeeksRow" style="display:none; margin-top:8px;">
+        <div class="field">
+          <label>重复几周（含本次）</label>
+          <input type="number" id="f-recurring-weeks" value="4" min="2" max="26" step="1">
+        </div>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="danger-link" id="deleteSessBtn" style="display:none;">删除这节课</button>
       <div class="right">
@@ -616,6 +670,10 @@ service cloud.firestore {
     <div class="field">
       <label>时薪 (RM / 小时)</label>
       <input type="number" id="s-rate" placeholder="例如：60" min="0" step="1">
+    </div>
+    <div class="field">
+      <label>已购课时包总数（选填，用来计算剩余课时）</label>
+      <input type="number" id="s-package-total" placeholder="例如：10" min="0" step="1">
     </div>
     <div class="field">
       <label>备注（选填）</label>
@@ -772,6 +830,55 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
+// 不同学生的日历色块颜色（按学生 id 哈希固定分配，同一个学生颜色不会变）
+const STUDENT_COLORS = [
+  {bg:'#E8EFE6', fg:'#4F6F55'}, {bg:'#FBEDDA', fg:'#95601E'}, {bg:'#EAF0F6', fg:'#3C6690'},
+  {bg:'#F3E8F5', fg:'#7A4E8C'}, {bg:'#E6F5F0', fg:'#2F8067'}, {bg:'#FFF3D6', fg:'#8A6A16'},
+  {bg:'#EDEAF7', fg:'#5B54A6'}, {bg:'#FDECEC', fg:'#B23A3A'}
+];
+function colorForStudent(id){
+  let h = 0;
+  for(let i=0;i<id.length;i++) h = (h*31 + id.charCodeAt(i)) >>> 0;
+  return STUDENT_COLORS[h % STUDENT_COLORS.length];
+}
+
+function timeToMinutes(t){ const [h,m] = t.split(':').map(Number); return h*60+m; }
+function addMinutesToTime(time, minutesToAdd){
+  const total = ((timeToMinutes(time) + minutesToAdd) % 1440 + 1440) % 1440;
+  return pad(Math.floor(total/60)) + ':' + pad(total%60);
+}
+function formatTimeRange(s){ return `${s.time}–${addMinutesToTime(s.time, s.duration*60)}`; }
+
+function sessionsOverlap(aStart, aDur, bStart, bDur){
+  const aS = timeToMinutes(aStart), aE = aS + aDur*60;
+  const bS = timeToMinutes(bStart), bE = bS + bDur*60;
+  return aS < bE && bS < aE;
+}
+// 找出同一天时间冲突的课程（请假/取消的课不占用时间，不参与冲突判断）
+function findConflict(date, time, duration, excludeId){
+  return sessions.find(s => s.date===date && s.id!==excludeId && s.status!=='leave' && s.status!=='cancelled'
+    && sessionsOverlap(time, duration, s.time, s.duration));
+}
+function formatConflictMsg(conflict){
+  const stu = studentById(conflict.studentId);
+  return `${conflict.date} ${formatTimeRange(conflict)}（${stu ? stu.name : '未知学生'}）已经排了课，时间冲突`;
+}
+function generateRecurringDates(startKey, weeks){
+  const [y,m,d] = startKey.split('-').map(Number);
+  const dates = [];
+  for(let i=0;i<weeks;i++){
+    const dt = new Date(y, m-1, d + i*7);
+    dates.push(dateKey(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+  }
+  return dates;
+}
+function countBillableSessions(studentId){
+  return sessions.filter(s=>s.studentId===studentId && isBillable(s.status)).length;
+}
+function remainingPackage(stu){
+  return (stu.packageTotal || 0) - countBillableSessions(stu.id);
+}
+
 /* ================= 视图切换 ================= */
 const tabBtns = document.querySelectorAll('.tab-btn');
 function switchTab(name){
@@ -781,6 +888,7 @@ function switchTab(name){
   if(name==='students') renderStudents();
   if(name==='billing') renderBilling();
   if(name==='settings') renderSettings();
+  if(name==='overview') renderOverview();
 }
 tabBtns.forEach(btn=> btn.addEventListener('click', ()=> switchTab(btn.dataset.tab)));
 
@@ -847,7 +955,12 @@ function renderCalendar(){
       const chip = document.createElement('div');
       chip.className = 'sess-chip' + (s.status==='leave' ? ' leave' : s.status==='cancelled' ? ' cancelled' : '');
       const stu = studentById(s.studentId);
-      chip.textContent = `${s.time} ${stu? stu.name : '（学生已删除）'}`;
+      if(s.status!=='leave' && s.status!=='cancelled'){
+        const c = colorForStudent(s.studentId);
+        chip.style.background = c.bg;
+        chip.style.color = c.fg;
+      }
+      chip.textContent = `${formatTimeRange(s)} ${stu? stu.name : '（学生已删除）'}`;
       chip.addEventListener('click', (e)=>{ e.stopPropagation(); openSessModal(key, s.id); });
       cell.appendChild(chip);
     });
@@ -914,6 +1027,7 @@ function openSessModal(key, sessId){
     document.getElementById('f-note').value = s.note || '';
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value===s.status));
     document.getElementById('deleteSessBtn').style.display = 'inline';
+    document.getElementById('recurringField').style.display = 'none';
   }else{
     document.getElementById('sessModalTitle').textContent = '添加课程';
     document.getElementById('f-time').value = '16:00';
@@ -921,10 +1035,17 @@ function openSessModal(key, sessId){
     document.getElementById('f-note').value = '';
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value==='scheduled'));
     document.getElementById('deleteSessBtn').style.display = 'none';
+    document.getElementById('recurringField').style.display = 'block';
+    document.getElementById('f-recurring').checked = false;
+    document.getElementById('recurringWeeksRow').style.display = 'none';
   }
   sessModal.classList.add('active');
 }
 function closeSessModal(){ sessModal.classList.remove('active'); }
+
+document.getElementById('f-recurring').addEventListener('change', (e)=>{
+  document.getElementById('recurringWeeksRow').style.display = e.target.checked ? 'flex' : 'none';
+});
 
 document.getElementById('cancelSessBtn').addEventListener('click', closeSessModal);
 sessModal.addEventListener('click', (e)=>{ if(e.target===sessModal) closeSessModal(); });
@@ -936,23 +1057,49 @@ document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
   const duration = parseFloat(document.getElementById('f-duration').value) || 0;
   const note = document.getElementById('f-note').value.trim();
   const status = document.querySelector('#f-status input:checked').value;
+  const isOccupying = (status!=='leave' && status!=='cancelled');
 
   const saveBtn = document.getElementById('saveSessBtn');
   saveBtn.textContent = '保存中...'; saveBtn.disabled = true;
 
-  let row;
-  if(editingSessId){
-    const s = sessions.find(x=>x.id===editingSessId);
-    Object.assign(s, {studentId, time, duration, note, status});
-    row = s;
-  }else{
-    row = {id:uid(), date:modalDateKey, studentId, time, duration, note, status, paid:false};
-    sessions.push(row);
-  }
   try{
-    await apiUpsert('sessions', row);
+    if(editingSessId){
+      if(isOccupying){
+        const conflict = findConflict(modalDateKey, time, duration, editingSessId);
+        if(conflict){ alert(formatConflictMsg(conflict)); saveBtn.textContent='保存'; saveBtn.disabled=false; return; }
+      }
+      const s = sessions.find(x=>x.id===editingSessId);
+      Object.assign(s, {studentId, time, duration, note, status});
+      await apiUpsert('sessions', s);
+    }else{
+      const isRecurring = document.getElementById('f-recurring').checked;
+      if(isRecurring){
+        const weeks = parseInt(document.getElementById('f-recurring-weeks').value) || 1;
+        const dates = generateRecurringDates(modalDateKey, weeks);
+        let created = 0, skipped = [];
+        for(const d of dates){
+          if(isOccupying && findConflict(d, time, duration, null)){ skipped.push(d); continue; }
+          const row = {id:uid(), date:d, studentId, time, duration, note, status, paid:false};
+          sessions.push(row);
+          await apiUpsert('sessions', row);
+          created++;
+        }
+        if(skipped.length){
+          alert(`已添加 ${created} 节课，其中 ${skipped.length} 天因时间冲突被跳过：${skipped.join('、')}`);
+        }
+      }else{
+        if(isOccupying){
+          const conflict = findConflict(modalDateKey, time, duration, null);
+          if(conflict){ alert(formatConflictMsg(conflict)); saveBtn.textContent='保存'; saveBtn.disabled=false; return; }
+        }
+        const row = {id:uid(), date:modalDateKey, studentId, time, duration, note, status, paid:false};
+        sessions.push(row);
+        await apiUpsert('sessions', row);
+      }
+    }
     closeSessModal();
     renderCalendar();
+    renderOverview();
   }catch(err){
     alert('保存失败：' + err.message);
   }
@@ -966,6 +1113,7 @@ document.getElementById('deleteSessBtn').addEventListener('click', async ()=>{
     sessions = sessions.filter(x=>x.id!==editingSessId);
     closeSessModal();
     renderCalendar();
+    renderOverview();
   }catch(err){
     alert('删除失败：' + err.message);
   }
@@ -983,6 +1131,7 @@ function renderStudents(){
     return;
   }
   students.forEach(s=>{
+    const remaining = remainingPackage(s);
     const row = document.createElement('div');
     row.className = 'student-row';
     row.innerHTML = `
@@ -992,6 +1141,7 @@ function renderStudents(){
       </div>
       <div class="row-actions">
         <span class="rate-tag">RM ${s.rate}/小时</span>
+        ${s.packageTotal ? `<span class="rate-tag" style="background:var(--amber-tint); color:#95601E;">剩余 ${remaining} 节</span>` : ''}
         <button class="icon-btn edit-s" data-id="${s.id}">✎</button>
       </div>
     `;
@@ -1011,6 +1161,7 @@ function openStudentModal(id){
     document.getElementById('s-name').value = s.name;
     document.getElementById('s-contact').value = s.contact || '';
     document.getElementById('s-rate').value = s.rate;
+    document.getElementById('s-package-total').value = s.packageTotal || '';
     document.getElementById('s-note').value = s.note || '';
     document.getElementById('deleteStudentBtn').style.display = 'inline';
   }else{
@@ -1018,6 +1169,7 @@ function openStudentModal(id){
     document.getElementById('s-name').value = '';
     document.getElementById('s-contact').value = '';
     document.getElementById('s-rate').value = '';
+    document.getElementById('s-package-total').value = '';
     document.getElementById('s-note').value = '';
     document.getElementById('deleteStudentBtn').style.display = 'none';
   }
@@ -1033,6 +1185,7 @@ document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('s-name').value.trim();
   const contact = document.getElementById('s-contact').value.trim();
   const rate = parseFloat(document.getElementById('s-rate').value) || 0;
+  const packageTotal = parseInt(document.getElementById('s-package-total').value) || 0;
   const note = document.getElementById('s-note').value.trim();
   if(!name){ alert('请填写学生姓名'); return; }
 
@@ -1042,9 +1195,9 @@ document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
   let row;
   if(editingStudentId){
     row = studentById(editingStudentId);
-    Object.assign(row, {name, contact, rate, note});
+    Object.assign(row, {name, contact, rate, packageTotal, note});
   }else{
-    row = {id:uid(), name, contact, rate, note};
+    row = {id:uid(), name, contact, rate, packageTotal, note};
     students.push(row);
   }
   try{
@@ -1052,6 +1205,7 @@ document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
     closeStudentModal();
     renderStudents();
     renderCalendar();
+    renderOverview();
   }catch(err){
     alert('保存失败：' + err.message);
   }
@@ -1066,6 +1220,7 @@ document.getElementById('deleteStudentBtn').addEventListener('click', async ()=>
     closeStudentModal();
     renderStudents();
     renderCalendar();
+    renderOverview();
   }catch(err){
     alert('删除失败：' + err.message);
   }
@@ -1105,7 +1260,7 @@ function renderBilling(){
     const tr = document.createElement('tr');
     const [,mm,dd] = s.date.split('-');
     tr.innerHTML = `
-      <td class="mono">${parseInt(mm)}/${parseInt(dd)}　${s.time}</td>
+      <td class="mono">${parseInt(mm)}/${parseInt(dd)}　${formatTimeRange(s)}</td>
       <td>${stu ? escapeHtml(stu.name) : '（已删除）'}</td>
       <td class="mono">${s.duration}h</td>
       <td><span class="status-tag ${s.status}">${statusLabel(s.status)}</span></td>
@@ -1124,6 +1279,7 @@ function renderBilling(){
         try{
           await apiUpsert('sessions', s);
           renderBilling();
+          renderOverview();
         }catch(err){
           s.paid = prev;
           alert('更新失败：' + err.message);
@@ -1150,6 +1306,107 @@ document.getElementById('nextBillMonth').addEventListener('click', ()=>{
   billMonth++; if(billMonth>11){ billMonth=0; billYear++; } renderBilling();
 });
 
+/* ================= 总览 ================= */
+function renderOverview(){
+  document.getElementById('ovStudentCount').textContent = students.length;
+  const now = new Date();
+  const curPrefix = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+  const curYear = String(now.getFullYear());
+  document.getElementById('overviewSub').textContent = `${now.getFullYear()}年${now.getMonth()+1}月 数据概览`;
+
+  let monthIncome = 0, monthUnpaid = 0;
+  sessions.forEach(s=>{
+    if(!isBillable(s.status)) return;
+    const stu = studentById(s.studentId); const rate = stu ? stu.rate : 0;
+    const amt = s.duration * rate;
+    if(s.date.startsWith(curPrefix)){ monthIncome += amt; if(!s.paid) monthUnpaid += amt; }
+  });
+  document.getElementById('ovMonthIncome').textContent = fmtMoney(monthIncome);
+  document.getElementById('ovMonthUnpaid').textContent = fmtMoney(monthUnpaid);
+
+  const sel = document.getElementById('ov-student-select');
+  const prevVal = sel.value;
+  sel.innerHTML = '';
+  if(students.length===0){
+    sel.innerHTML = '<option disabled selected>还没有学生</option>';
+    document.getElementById('ovStudentDetail').textContent = '';
+  }else{
+    students.forEach(s=>{
+      const opt = document.createElement('option');
+      opt.value = s.id; opt.textContent = s.name;
+      sel.appendChild(opt);
+    });
+    if(prevVal && students.find(s=>s.id===prevVal)) sel.value = prevVal;
+    updateOverviewStudentDetail();
+  }
+
+  const unpaidByStudent = {};
+  sessions.forEach(s=>{
+    if(!isBillable(s.status) || s.paid) return;
+    const stu = studentById(s.studentId); if(!stu) return;
+    unpaidByStudent[stu.id] = (unpaidByStudent[stu.id] || 0) + s.duration * stu.rate;
+  });
+  const unpaidBody = document.getElementById('ovUnpaidBody');
+  unpaidBody.innerHTML = '';
+  const entries = Object.entries(unpaidByStudent).filter(([,v])=>v>0.001).sort((a,b)=>b[1]-a[1]);
+  entries.forEach(([sid, amt])=>{
+    const stu = studentById(sid);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(stu ? stu.name : '（已删除）')}</td><td class="mono">${fmtMoney(amt)}</td>`;
+    unpaidBody.appendChild(tr);
+  });
+  document.getElementById('ovUnpaidEmpty').style.display = entries.length===0 ? 'block' : 'none';
+
+  let yearIncome = 0;
+  sessions.forEach(s=>{
+    if(!isBillable(s.status) || !s.date.startsWith(curYear)) return;
+    const stu = studentById(s.studentId); const rate = stu ? stu.rate : 0;
+    yearIncome += s.duration * rate;
+  });
+  document.getElementById('ovYearLabel').textContent = `${curYear}年累计收入 (RM)`;
+  document.getElementById('ovYearIncome').textContent = fmtMoney(yearIncome);
+}
+
+function updateOverviewStudentDetail(){
+  const sid = document.getElementById('ov-student-select').value;
+  const detail = document.getElementById('ovStudentDetail');
+  if(!sid){ detail.textContent = ''; return; }
+  const now = new Date();
+  const curPrefix = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+  const stuSessions = sessions.filter(s=>s.studentId===sid && s.date.startsWith(curPrefix) && isBillable(s.status));
+  const days = new Set(stuSessions.map(s=>s.date)).size;
+  const hours = stuSessions.reduce((sum,s)=>sum+s.duration, 0);
+  const stu = studentById(sid);
+  let text = `本月上课 <strong>${stuSessions.length}</strong> 次，共 <strong>${days}</strong> 天，累计 <strong>${hours}</strong> 小时`;
+  if(stu && stu.packageTotal){ text += `　·　课时包剩余 <strong>${remainingPackage(stu)}</strong> 节`; }
+  detail.innerHTML = text;
+}
+document.getElementById('ov-student-select').addEventListener('change', updateOverviewStudentDetail);
+
+/* ================= 数据导出 ================= */
+function toCsv(rows, headers){
+  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const lines = [headers.map(esc).join(',')];
+  rows.forEach(r => lines.push(headers.map(h=>esc(r[h])).join(',')));
+  return '\uFEFF' + lines.join('\r\n');
+}
+function downloadCsv(filename, content){
+  const blob = new Blob([content], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+document.getElementById('exportStudentsBtn').addEventListener('click', ()=>{
+  const rows = students.map(s=>({...s, packageTotal: s.packageTotal||0}));
+  downloadCsv('学生名单.csv', toCsv(rows, ['id','name','contact','rate','packageTotal','note']));
+});
+document.getElementById('exportSessionsBtn').addEventListener('click', ()=>{
+  const rows = sessions.map(s=>({ ...s, studentName: (studentById(s.studentId)||{}).name || '' }));
+  downloadCsv('课程记录.csv', toCsv(rows, ['id','date','time','duration','studentName','studentId','status','note','paid']));
+});
+
 /* ================= 设置 ================= */
 function renderSettings(){
   const cfg = getFbConfig();
@@ -1170,7 +1427,7 @@ document.getElementById('saveFbBtn').addEventListener('click', async ()=>{
   await loadData();
   if(connected){
     msg.className='settings-msg ok'; msg.textContent='✓ 连接成功，数据已加载';
-    renderCalendar(); renderStudents(); renderBilling();
+    renderCalendar(); renderStudents(); renderBilling(); renderOverview();
   }else{
     msg.className='settings-msg err'; msg.textContent='连接失败，请检查配置内容是否完整、Firestore 是否已开启';
   }
@@ -1238,6 +1495,7 @@ document.getElementById('signOutBtn').addEventListener('click', ()=>{
       document.getElementById('loginMask').style.display = 'none';
       document.getElementById('appRoot').style.display = 'flex';
       await loadData();
+      renderOverview();
       renderCalendar();
       renderStudents();
       renderBilling();
