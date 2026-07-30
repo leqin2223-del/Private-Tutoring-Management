@@ -479,7 +479,14 @@
         <div class="stat warn"><div class="label">本月未收款 (RM)</div><div class="value mono" id="ovMonthUnpaid">0</div></div>
       </div>
       <div class="card">
-        <h3 style="font-size:15px; margin-bottom:12px;">按学生查看本月上课情况</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <h3 style="font-size:15px;">按学生查看当月上课情况</h3>
+          <div class="cal-nav">
+            <button class="icon-btn" id="ovPrevMonth">‹</button>
+            <div class="month-label" id="ovMonthLabel" style="font-size:13px; min-width:90px;"></div>
+            <button class="icon-btn" id="ovNextMonth">›</button>
+          </div>
+        </div>
         <div class="field" style="max-width:280px;">
           <label>选择学生</label>
           <select id="ov-student-select"></select>
@@ -487,12 +494,12 @@
         <div id="ovStudentDetail" style="margin-top:10px; font-size:13.5px; color:var(--ink-soft); line-height:1.7;"></div>
       </div>
       <div class="card">
-        <h3 style="font-size:15px; margin-bottom:12px;">全部学生欠款总览（不分月份）</h3>
+        <h3 style="font-size:15px; margin-bottom:12px;">全部学生结余总览（不分月份，按实际收款计算）</h3>
         <table class="bill-table">
-          <thead><tr><th>学生</th><th>累计未收 (RM)</th></tr></thead>
+          <thead><tr><th>学生</th><th>状态</th><th>金额 (RM)</th></tr></thead>
           <tbody id="ovUnpaidBody"></tbody>
         </table>
-        <div class="empty" id="ovUnpaidEmpty" style="display:none;">目前没有未收款项</div>
+        <div class="empty" id="ovUnpaidEmpty" style="display:none;">目前收支相抵，没有欠款或多收</div>
       </div>
       <div class="summary-strip">
         <div class="stat ok"><div class="label" id="ovYearLabel">今年累计收入 (RM)</div><div class="value mono" id="ovYearIncome">0</div></div>
@@ -551,13 +558,26 @@
       <div class="summary-strip">
         <div class="stat"><div class="label">本月课时</div><div class="value mono" id="statHours">0</div></div>
         <div class="stat ok"><div class="label">本月应收总额 (RM)</div><div class="value mono" id="statTotal">0</div></div>
-        <div class="stat warn"><div class="label">未收款 (RM)</div><div class="value mono" id="statUnpaid">0</div></div>
+        <div class="stat ok"><div class="label">本月已收款 (RM)</div><div class="value mono" id="statPaid">0</div></div>
+        <div class="stat warn"><div class="label">本月结余 (RM)</div><div class="value mono" id="statUnpaid">0</div></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="font-size:15px;">收款记录</h3>
+          <button class="primary" id="addPaymentBtn">+ 记录收款</button>
+        </div>
+        <table class="bill-table">
+          <thead><tr><th>日期</th><th>学生</th><th>金额 (RM)</th><th>备注</th></tr></thead>
+          <tbody id="paymentBody"></tbody>
+        </table>
+        <div class="empty" id="paymentEmpty" style="display:none;">这个月还没有收款记录</div>
       </div>
 
       <div class="card">
         <table class="bill-table">
           <thead>
-            <tr><th>日期</th><th>学生</th><th>时长</th><th>状态</th><th>金额 (RM)</th><th>收款</th></tr>
+            <tr><th>日期</th><th>学生</th><th>时长</th><th>状态</th><th>金额 (RM)</th></tr>
           </thead>
           <tbody id="billBody"></tbody>
         </table>
@@ -590,6 +610,7 @@
         <div class="settings-actions">
           <button class="ghost" id="exportStudentsBtn">导出学生名单</button>
           <button class="ghost" id="exportSessionsBtn">导出课程记录</button>
+          <button class="ghost" id="exportPaymentsBtn">导出收款记录</button>
         </div>
       </div>
       <div class="card">
@@ -602,11 +623,42 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /students/{id} { allow read, write: if request.auth != null; }
     match /sessions/{id} { allow read, write: if request.auth != null; }
+    match /payments/{id} { allow read, write: if request.auth != null; }
   }
 }</div>
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ===== 收款 Modal ===== -->
+<div class="modal-mask" id="paymentModal">
+  <div class="modal">
+    <h3 id="paymentModalTitle">记录收款</h3>
+    <div class="field">
+      <label>学生</label>
+      <select id="p-student"></select>
+    </div>
+    <div class="field">
+      <label>收款日期</label>
+      <input type="date" id="p-date">
+    </div>
+    <div class="field">
+      <label>金额 (RM)</label>
+      <input type="number" id="p-amount" min="0" step="0.01" placeholder="例如：300">
+    </div>
+    <div class="field">
+      <label>备注（选填）</label>
+      <input type="text" id="p-note" placeholder="例如：现金 / 转账，或说明包含哪几节课">
+    </div>
+    <div class="modal-actions">
+      <button class="danger-link" id="deletePaymentBtn" style="display:none;">删除这笔记录</button>
+      <div class="right">
+        <button class="ghost" id="cancelPaymentBtn">取消</button>
+        <button class="primary" id="savePaymentBtn">保存</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -698,6 +750,13 @@ service cloud.firestore {
     <div class="field">
       <label>姓名</label>
       <input type="text" id="s-name" placeholder="例如：小明">
+    </div>
+    <div class="field">
+      <label>日历颜色</label>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <input type="color" id="s-color" value="#6B8F71" style="width:44px; height:36px; padding:2px; cursor:pointer;">
+        <span style="font-size:12.5px; color:var(--muted);">用来在日历上区分这个学生的课</span>
+      </div>
     </div>
     <div class="field">
       <label>家长联系方式（选填）</label>
@@ -796,18 +855,20 @@ async function apiDelete(collectionName, id){
 }
 
 /* ================= 应用状态 ================= */
-let students = [];   // {id, name, contact, rate, note}
-let sessions = [];   // {id, studentId, date, time, duration, status, note, paid}
+let students = [];   // {id, name, contact, rate, note, packageTotal}
+let sessions = [];   // {id, studentId, date, time, duration, status, note, seriesId}
+let payments = [];   // {id, studentId, date, amount, note}
 let connected = false;
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 async function loadData(){
-  if(!getFbConfig() || !initFirebase()){ connected=false; students=[]; sessions=[]; updateConnStatus(); return; }
+  if(!getFbConfig() || !initFirebase()){ connected=false; students=[]; sessions=[]; payments=[]; updateConnStatus(); return; }
   try{
-    const [stu, sess] = await Promise.all([apiList('students'), apiList('sessions')]);
+    const [stu, sess, pay] = await Promise.all([apiList('students'), apiList('sessions'), apiList('payments')]);
     students = stu.map(s=>({...s, rate: Number(s.rate)||0}));
-    sessions = sess.map(s=>({...s, duration: Number(s.duration)||0, paid: !!s.paid}));
+    sessions = sess.map(s=>({...s, duration: Number(s.duration)||0}));
+    payments = pay.map(p=>({...p, amount: Number(p.amount)||0}));
     connected = true;
   }catch(err){
     connected = false;
@@ -866,13 +927,25 @@ function escapeHtml(str){
   return div.innerHTML;
 }
 
-// 不同学生的日历色块颜色（按学生 id 哈希固定分配，同一个学生颜色不会变）
+// 不同学生的日历色块颜色：优先用学生资料里自定义的颜色，没设置的话按 id 哈希固定分配一个
 const STUDENT_COLORS = [
   {bg:'#E8EFE6', fg:'#4F6F55'}, {bg:'#FBEDDA', fg:'#95601E'}, {bg:'#EAF0F6', fg:'#3C6690'},
   {bg:'#F3E8F5', fg:'#7A4E8C'}, {bg:'#E6F5F0', fg:'#2F8067'}, {bg:'#FFF3D6', fg:'#8A6A16'},
   {bg:'#EDEAF7', fg:'#5B54A6'}, {bg:'#FDECEC', fg:'#B23A3A'}
 ];
+function getContrastText(hex){
+  hex = (hex||'').replace('#','');
+  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
+  if(hex.length!==6) return '#1F2B3E';
+  const r = parseInt(hex.substr(0,2),16), g = parseInt(hex.substr(2,2),16), b = parseInt(hex.substr(4,2),16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return luminance > 0.55 ? '#1F2B3E' : '#FFFFFF';
+}
 function colorForStudent(id){
+  const stu = studentById(id);
+  if(stu && stu.color){
+    return { bg: stu.color, fg: getContrastText(stu.color) };
+  }
   let h = 0;
   for(let i=0;i<id.length;i++) h = (h*31 + id.charCodeAt(i)) >>> 0;
   return STUDENT_COLORS[h % STUDENT_COLORS.length];
@@ -1002,7 +1075,7 @@ function renderCalendar(){
         chip.style.background = c.bg;
         chip.style.color = c.fg;
       }
-      chip.textContent = `${formatTimeRange(s)} ${stu? stu.name : '（学生已删除）'}`;
+      chip.textContent = `${formatAmPm(s.time)} ${stu? stu.name : '（学生已删除）'}`;
       chip.draggable = true;
       chip.addEventListener('dragstart', (e)=>{
         e.stopPropagation();
@@ -1271,7 +1344,7 @@ document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
         let created = 0, skipped = [];
         for(const d of dates){
           if(isOccupying && findConflict(d, time, duration, null)){ skipped.push(d); continue; }
-          const row = {id:uid(), date:d, studentId, time, duration, note, status, paid:false, seriesId};
+          const row = {id:uid(), date:d, studentId, time, duration, note, status, seriesId};
           sessions.push(row);
           await apiUpsert('sessions', row);
           created++;
@@ -1284,7 +1357,7 @@ document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
           const conflict = findConflict(modalDateKey, time, duration, null);
           if(conflict){ alert(formatConflictMsg(conflict)); saveBtn.textContent='保存'; saveBtn.disabled=false; return; }
         }
-        const row = {id:uid(), date:modalDateKey, studentId, time, duration, note, status, paid:false};
+        const row = {id:uid(), date:modalDateKey, studentId, time, duration, note, status};
         sessions.push(row);
         await apiUpsert('sessions', row);
       }
@@ -1343,12 +1416,16 @@ function renderStudents(){
   }
   students.forEach(s=>{
     const remaining = remainingPackage(s);
+    const color = colorForStudent(s.id).bg;
     const row = document.createElement('div');
     row.className = 'student-row';
     row.innerHTML = `
-      <div>
-        <div class="student-name">${escapeHtml(s.name)}</div>
-        <div class="student-meta">${s.contact ? escapeHtml(s.contact) : '未填写联系方式'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div>
+      <div style="display:flex; align-items:flex-start; gap:10px;">
+        <span style="width:12px; height:12px; border-radius:50%; background:${color}; margin-top:4px; flex-shrink:0;"></span>
+        <div>
+          <div class="student-name">${escapeHtml(s.name)}</div>
+          <div class="student-meta">${s.contact ? escapeHtml(s.contact) : '未填写联系方式'}${s.note ? ' · ' + escapeHtml(s.note) : ''}</div>
+        </div>
       </div>
       <div class="row-actions">
         <span class="rate-tag">RM ${s.rate}/小时</span>
@@ -1370,6 +1447,7 @@ function openStudentModal(id){
     const s = studentById(id);
     document.getElementById('studentModalTitle').textContent = '编辑学生';
     document.getElementById('s-name').value = s.name;
+    document.getElementById('s-color').value = s.color || colorForStudent(id).bg;
     document.getElementById('s-contact').value = s.contact || '';
     document.getElementById('s-rate').value = s.rate;
     document.getElementById('s-package-total').value = s.packageTotal || '';
@@ -1378,6 +1456,7 @@ function openStudentModal(id){
   }else{
     document.getElementById('studentModalTitle').textContent = '添加学生';
     document.getElementById('s-name').value = '';
+    document.getElementById('s-color').value = STUDENT_COLORS[students.length % STUDENT_COLORS.length].bg;
     document.getElementById('s-contact').value = '';
     document.getElementById('s-rate').value = '';
     document.getElementById('s-package-total').value = '';
@@ -1394,6 +1473,7 @@ studentModal.addEventListener('click', (e)=>{ if(e.target===studentModal) closeS
 
 document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
   const name = document.getElementById('s-name').value.trim();
+  const color = document.getElementById('s-color').value;
   const contact = document.getElementById('s-contact').value.trim();
   const rate = parseFloat(document.getElementById('s-rate').value) || 0;
   const packageTotal = parseInt(document.getElementById('s-package-total').value) || 0;
@@ -1406,9 +1486,9 @@ document.getElementById('saveStudentBtn').addEventListener('click', async ()=>{
   let row;
   if(editingStudentId){
     row = studentById(editingStudentId);
-    Object.assign(row, {name, contact, rate, packageTotal, note});
+    Object.assign(row, {name, color, contact, rate, packageTotal, note});
   }else{
-    row = {id:uid(), name, contact, rate, packageTotal, note};
+    row = {id:uid(), name, color, contact, rate, packageTotal, note};
     students.push(row);
   }
   try{
@@ -1453,7 +1533,7 @@ function renderBilling(){
 
   document.getElementById('billingSub').textContent = `共 ${monthSessions.length} 条课程记录`;
 
-  let totalHours=0, totalAmount=0, unpaidAmount=0;
+  let totalHours=0, totalAmount=0;
   const body = document.getElementById('billBody');
   body.innerHTML = '';
 
@@ -1462,11 +1542,7 @@ function renderBilling(){
     const rate = stu ? stu.rate : 0;
     const billable = isBillable(s.status);
     const amount = billable ? s.duration * rate : 0;
-    if(billable){
-      totalHours += s.duration;
-      totalAmount += amount;
-      if(!s.paid) unpaidAmount += amount;
-    }
+    if(billable){ totalHours += s.duration; totalAmount += amount; }
 
     const tr = document.createElement('tr');
     const [,mm,dd] = s.date.split('-');
@@ -1476,38 +1552,36 @@ function renderBilling(){
       <td class="mono">${s.duration}h</td>
       <td><span class="status-tag ${s.status}">${statusLabel(s.status)}</span></td>
       <td class="mono">${billable ? fmtMoney(amount) : '—'}</td>
-      <td></td>
     `;
-    const payTd = tr.lastElementChild;
-    if(billable){
-      const btn = document.createElement('button');
-      btn.className = 'paid-toggle ' + (s.paid ? 'paid' : 'unpaid');
-      btn.textContent = s.paid ? '已收款' : '未收款';
-      btn.addEventListener('click', async ()=>{
-        const prev = s.paid;
-        s.paid = !s.paid;
-        btn.disabled = true;
-        try{
-          await apiUpsert('sessions', s);
-          renderBilling();
-          renderOverview();
-        }catch(err){
-          s.paid = prev;
-          alert('更新失败：' + err.message);
-          btn.disabled = false;
-        }
-      });
-      payTd.appendChild(btn);
-    }else{
-      payTd.textContent = '—';
-    }
     body.appendChild(tr);
   });
-
   document.getElementById('billEmpty').style.display = monthSessions.length===0 ? 'block' : 'none';
+
+  const monthPayments = payments.filter(p=>p.date.startsWith(prefix)).sort((a,b)=>a.date.localeCompare(b.date));
+  const payBody = document.getElementById('paymentBody');
+  payBody.innerHTML = '';
+  let totalPaid = 0;
+  monthPayments.forEach(p=>{
+    totalPaid += p.amount;
+    const stu = studentById(p.studentId);
+    const [,mm,dd] = p.date.split('-');
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.innerHTML = `
+      <td class="mono">${parseInt(mm)}/${parseInt(dd)}</td>
+      <td>${stu ? escapeHtml(stu.name) : '（已删除）'}</td>
+      <td class="mono">${fmtMoney(p.amount)}</td>
+      <td>${escapeHtml(p.note||'')}</td>
+    `;
+    tr.addEventListener('click', ()=> openPaymentModal(p.id));
+    payBody.appendChild(tr);
+  });
+  document.getElementById('paymentEmpty').style.display = monthPayments.length===0 ? 'block' : 'none';
+
   document.getElementById('statHours').textContent = totalHours;
   document.getElementById('statTotal').textContent = fmtMoney(totalAmount);
-  document.getElementById('statUnpaid').textContent = fmtMoney(unpaidAmount);
+  document.getElementById('statPaid').textContent = fmtMoney(totalPaid);
+  document.getElementById('statUnpaid').textContent = fmtMoney(totalAmount - totalPaid);
 }
 
 document.getElementById('prevBillMonth').addEventListener('click', ()=>{
@@ -1517,7 +1591,100 @@ document.getElementById('nextBillMonth').addEventListener('click', ()=>{
   billMonth++; if(billMonth>11){ billMonth=0; billYear++; } renderBilling();
 });
 
+/* ================= 收款记录 Modal ================= */
+let editingPaymentId = null;
+function refreshPaymentStudentSelect(){
+  const sel = document.getElementById('p-student');
+  sel.innerHTML = '';
+  if(students.length===0){
+    const opt = document.createElement('option');
+    opt.textContent = '请先到"学生"页添加学生';
+    opt.disabled = true; opt.selected = true;
+    sel.appendChild(opt);
+    return;
+  }
+  students.forEach(s=>{
+    const opt = document.createElement('option');
+    opt.value = s.id; opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
+}
+function openPaymentModal(id){
+  editingPaymentId = id || null;
+  refreshPaymentStudentSelect();
+  if(id){
+    const p = payments.find(x=>x.id===id);
+    document.getElementById('paymentModalTitle').textContent = '编辑收款记录';
+    document.getElementById('p-student').value = p.studentId;
+    document.getElementById('p-date').value = p.date;
+    document.getElementById('p-amount').value = p.amount;
+    document.getElementById('p-note').value = p.note || '';
+    document.getElementById('deletePaymentBtn').style.display = 'inline';
+  }else{
+    document.getElementById('paymentModalTitle').textContent = '记录收款';
+    document.getElementById('p-date').value = todayKey();
+    document.getElementById('p-amount').value = '';
+    document.getElementById('p-note').value = '';
+    document.getElementById('deletePaymentBtn').style.display = 'none';
+  }
+  document.getElementById('paymentModal').classList.add('active');
+}
+function closePaymentModal(){ document.getElementById('paymentModal').classList.remove('active'); }
+document.getElementById('addPaymentBtn').addEventListener('click', ()=> openPaymentModal(null));
+document.getElementById('cancelPaymentBtn').addEventListener('click', closePaymentModal);
+document.getElementById('paymentModal').addEventListener('click', (e)=>{ if(e.target.id==='paymentModal') closePaymentModal(); });
+
+document.getElementById('savePaymentBtn').addEventListener('click', async ()=>{
+  if(students.length===0){ alert('请先添加至少一位学生'); return; }
+  const studentId = document.getElementById('p-student').value;
+  const date = document.getElementById('p-date').value;
+  const amount = parseFloat(document.getElementById('p-amount').value) || 0;
+  const note = document.getElementById('p-note').value.trim();
+  if(!date){ alert('请选择收款日期'); return; }
+  if(amount<=0){ alert('请填写有效的金额'); return; }
+
+  const btn = document.getElementById('savePaymentBtn');
+  btn.textContent = '保存中...'; btn.disabled = true;
+  let row;
+  if(editingPaymentId){
+    row = payments.find(x=>x.id===editingPaymentId);
+    Object.assign(row, {studentId, date, amount, note});
+  }else{
+    row = {id:uid(), studentId, date, amount, note};
+    payments.push(row);
+  }
+  try{
+    await apiUpsert('payments', row);
+    closePaymentModal();
+    renderBilling();
+    renderOverview();
+  }catch(err){
+    alert('保存失败：' + err.message);
+  }
+  btn.textContent = '保存'; btn.disabled = false;
+});
+
+document.getElementById('deletePaymentBtn').addEventListener('click', async ()=>{
+  if(!confirm('确定删除这笔收款记录吗？')) return;
+  try{
+    await apiDelete('payments', editingPaymentId);
+    payments = payments.filter(x=>x.id!==editingPaymentId);
+    closePaymentModal();
+    renderBilling();
+    renderOverview();
+  }catch(err){
+    alert('删除失败：' + err.message);
+  }
+});
+
 /* ================= 总览 ================= */
+let ovYear, ovMonth;
+function initOverviewDate(){
+  const t = new Date();
+  ovYear = t.getFullYear();
+  ovMonth = t.getMonth();
+}
+
 function renderOverview(){
   document.getElementById('ovStudentCount').textContent = students.length;
   const now = new Date();
@@ -1525,16 +1692,17 @@ function renderOverview(){
   const curYear = String(now.getFullYear());
   document.getElementById('overviewSub').textContent = `${now.getFullYear()}年${now.getMonth()+1}月 数据概览`;
 
-  let monthIncome = 0, monthUnpaid = 0;
+  let monthIncome = 0;
   sessions.forEach(s=>{
-    if(!isBillable(s.status)) return;
+    if(!isBillable(s.status) || !s.date.startsWith(curPrefix)) return;
     const stu = studentById(s.studentId); const rate = stu ? stu.rate : 0;
-    const amt = s.duration * rate;
-    if(s.date.startsWith(curPrefix)){ monthIncome += amt; if(!s.paid) monthUnpaid += amt; }
+    monthIncome += s.duration * rate;
   });
+  const monthPaid = payments.filter(p=>p.date.startsWith(curPrefix)).reduce((sum,p)=>sum+p.amount, 0);
   document.getElementById('ovMonthIncome').textContent = fmtMoney(monthIncome);
-  document.getElementById('ovMonthUnpaid').textContent = fmtMoney(monthUnpaid);
+  document.getElementById('ovMonthUnpaid').textContent = fmtMoney(monthIncome - monthPaid);
 
+  document.getElementById('ovMonthLabel').textContent = `${ovYear}年 ${MONTH_NAMES[ovMonth]}`;
   const sel = document.getElementById('ov-student-select');
   const prevVal = sel.value;
   sel.innerHTML = '';
@@ -1551,19 +1719,28 @@ function renderOverview(){
     updateOverviewStudentDetail();
   }
 
-  const unpaidByStudent = {};
+  // 结余总览：应收（全部账期的课程） - 已收（全部收款记录），按学生汇总
+  const balanceByStudent = {};
   sessions.forEach(s=>{
-    if(!isBillable(s.status) || s.paid) return;
+    if(!isBillable(s.status)) return;
     const stu = studentById(s.studentId); if(!stu) return;
-    unpaidByStudent[stu.id] = (unpaidByStudent[stu.id] || 0) + s.duration * stu.rate;
+    balanceByStudent[stu.id] = (balanceByStudent[stu.id] || 0) + s.duration * stu.rate;
+  });
+  payments.forEach(p=>{
+    balanceByStudent[p.studentId] = (balanceByStudent[p.studentId] || 0) - p.amount;
   });
   const unpaidBody = document.getElementById('ovUnpaidBody');
   unpaidBody.innerHTML = '';
-  const entries = Object.entries(unpaidByStudent).filter(([,v])=>v>0.001).sort((a,b)=>b[1]-a[1]);
+  const entries = Object.entries(balanceByStudent).filter(([,v])=>Math.abs(v)>0.01).sort((a,b)=>b[1]-a[1]);
   entries.forEach(([sid, amt])=>{
     const stu = studentById(sid);
+    const owed = amt > 0;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${escapeHtml(stu ? stu.name : '（已删除）')}</td><td class="mono">${fmtMoney(amt)}</td>`;
+    tr.innerHTML = `
+      <td>${escapeHtml(stu ? stu.name : '（已删除）')}</td>
+      <td><span class="status-tag ${owed ? 'leave' : 'completed'}">${owed ? '欠款' : '多收/预付'}</span></td>
+      <td class="mono">${fmtMoney(Math.abs(amt))}</td>
+    `;
     unpaidBody.appendChild(tr);
   });
   document.getElementById('ovUnpaidEmpty').style.display = entries.length===0 ? 'block' : 'none';
@@ -1578,17 +1755,27 @@ function renderOverview(){
   document.getElementById('ovYearIncome').textContent = fmtMoney(yearIncome);
 }
 
+document.getElementById('ovPrevMonth').addEventListener('click', ()=>{
+  ovMonth--; if(ovMonth<0){ ovMonth=11; ovYear--; }
+  document.getElementById('ovMonthLabel').textContent = `${ovYear}年 ${MONTH_NAMES[ovMonth]}`;
+  updateOverviewStudentDetail();
+});
+document.getElementById('ovNextMonth').addEventListener('click', ()=>{
+  ovMonth++; if(ovMonth>11){ ovMonth=0; ovYear++; }
+  document.getElementById('ovMonthLabel').textContent = `${ovYear}年 ${MONTH_NAMES[ovMonth]}`;
+  updateOverviewStudentDetail();
+});
+
 function updateOverviewStudentDetail(){
   const sid = document.getElementById('ov-student-select').value;
   const detail = document.getElementById('ovStudentDetail');
   if(!sid){ detail.textContent = ''; return; }
-  const now = new Date();
-  const curPrefix = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
-  const stuSessions = sessions.filter(s=>s.studentId===sid && s.date.startsWith(curPrefix) && isBillable(s.status));
+  const prefix = `${ovYear}-${pad(ovMonth+1)}`;
+  const stuSessions = sessions.filter(s=>s.studentId===sid && s.date.startsWith(prefix) && isBillable(s.status));
   const days = new Set(stuSessions.map(s=>s.date)).size;
   const hours = stuSessions.reduce((sum,s)=>sum+s.duration, 0);
   const stu = studentById(sid);
-  let text = `本月上课 <strong>${stuSessions.length}</strong> 次，共 <strong>${days}</strong> 天，累计 <strong>${hours}</strong> 小时`;
+  let text = `${ovYear}年${ovMonth+1}月上课 <strong>${stuSessions.length}</strong> 次，共 <strong>${days}</strong> 天，累计 <strong>${hours}</strong> 小时`;
   if(stu && stu.packageTotal){ text += `　·　课时包剩余 <strong>${remainingPackage(stu)}</strong> 节`; }
   detail.innerHTML = text;
 }
@@ -1615,7 +1802,11 @@ document.getElementById('exportStudentsBtn').addEventListener('click', ()=>{
 });
 document.getElementById('exportSessionsBtn').addEventListener('click', ()=>{
   const rows = sessions.map(s=>({ ...s, studentName: (studentById(s.studentId)||{}).name || '' }));
-  downloadCsv('课程记录.csv', toCsv(rows, ['id','date','time','duration','studentName','studentId','status','note','paid']));
+  downloadCsv('课程记录.csv', toCsv(rows, ['id','date','time','duration','studentName','studentId','status','note']));
+});
+document.getElementById('exportPaymentsBtn').addEventListener('click', ()=>{
+  const rows = payments.map(p=>({ ...p, studentName: (studentById(p.studentId)||{}).name || '' }));
+  downloadCsv('收款记录.csv', toCsv(rows, ['id','date','studentName','studentId','amount','note']));
 });
 
 /* ================= 设置 ================= */
@@ -1697,6 +1888,7 @@ document.getElementById('signOutBtn').addEventListener('click', ()=>{
 (async function init(){
   initCalendarDate();
   initBillDate();
+  initOverviewDate();
   if(!initFirebase()){
     document.getElementById('loginMsg').textContent = 'Firebase 配置有问题，请检查设置';
     return;
