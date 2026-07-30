@@ -616,14 +616,22 @@ service cloud.firestore {
       <label>学生</label>
       <select id="f-student"></select>
     </div>
-    <div class="field-row">
-      <div class="field">
-        <label>时间</label>
-        <input type="time" id="f-time" value="16:00">
+    <div class="field">
+      <label>时间</label>
+      <div class="field-row" style="gap:6px;">
+        <select id="f-time-hour"></select>
+        <select id="f-time-minute"></select>
+        <select id="f-time-ampm">
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
       </div>
-      <div class="field">
-        <label>时长（小时）</label>
-        <input type="number" id="f-duration" value="1" min="0.5" step="0.5">
+    </div>
+    <div class="field">
+      <label>时长</label>
+      <div class="field-row" style="gap:6px;">
+        <select id="f-duration-hours"></select>
+        <select id="f-duration-minutes"></select>
       </div>
     </div>
     <div class="field">
@@ -1037,6 +1045,55 @@ const sessModal = document.getElementById('sessModal');
 let editingSessId = null;
 let modalDateKey = null;
 
+function populateTimePickers(){
+  const hourSel = document.getElementById('f-time-hour');
+  for(let h=1; h<=12; h++){
+    const opt = document.createElement('option'); opt.value=h; opt.textContent=h; hourSel.appendChild(opt);
+  }
+  const minSel = document.getElementById('f-time-minute');
+  for(let m=0; m<60; m+=5){
+    const opt = document.createElement('option'); opt.value=m; opt.textContent=pad(m); minSel.appendChild(opt);
+  }
+  const durHourSel = document.getElementById('f-duration-hours');
+  for(let h=0; h<=6; h++){
+    const opt = document.createElement('option'); opt.value=h; opt.textContent=`${h} 小时`; durHourSel.appendChild(opt);
+  }
+  const durMinSel = document.getElementById('f-duration-minutes');
+  [0,15,30,45].forEach(m=>{
+    const opt = document.createElement('option'); opt.value=m; opt.textContent=`${m} 分钟`; durMinSel.appendChild(opt);
+  });
+}
+populateTimePickers();
+
+function setTimeInputs(time24){
+  let [h,m] = time24.split(':').map(Number);
+  const ap = h>=12 ? 'PM' : 'AM';
+  let h12 = h % 12; if(h12===0) h12 = 12;
+  const roundedM = Math.round(m/5)*5 % 60;
+  document.getElementById('f-time-hour').value = h12;
+  document.getElementById('f-time-minute').value = roundedM;
+  document.getElementById('f-time-ampm').value = ap;
+}
+function getTimeFromInputs(){
+  let h = parseInt(document.getElementById('f-time-hour').value);
+  const m = parseInt(document.getElementById('f-time-minute').value);
+  const ap = document.getElementById('f-time-ampm').value;
+  if(ap==='AM'){ if(h===12) h=0; } else { if(h!==12) h+=12; }
+  return pad(h) + ':' + pad(m);
+}
+function setDurationInputs(durationHours){
+  const totalMin = Math.round(durationHours*60);
+  const h = Math.floor(totalMin/60);
+  const snappedM = Math.round((totalMin%60)/15)*15 % 60;
+  document.getElementById('f-duration-hours').value = h;
+  document.getElementById('f-duration-minutes').value = snappedM;
+}
+function getDurationFromInputs(){
+  const h = parseInt(document.getElementById('f-duration-hours').value) || 0;
+  const m = parseInt(document.getElementById('f-duration-minutes').value) || 0;
+  return h + m/60;
+}
+
 function refreshStudentSelect(){
   const sel = document.getElementById('f-student');
   sel.innerHTML = '';
@@ -1068,8 +1125,8 @@ function openSessModal(key, sessId){
     const s = sessions.find(x=>x.id===editingSessId);
     document.getElementById('sessModalTitle').textContent = '编辑课程';
     document.getElementById('f-student').value = s.studentId;
-    document.getElementById('f-time').value = s.time;
-    document.getElementById('f-duration').value = s.duration;
+    setTimeInputs(s.time);
+    setDurationInputs(s.duration);
     document.getElementById('f-note').value = s.note || '';
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value===s.status));
     document.getElementById('deleteSessBtn').style.display = 'inline';
@@ -1084,8 +1141,8 @@ function openSessModal(key, sessId){
     }
   }else{
     document.getElementById('sessModalTitle').textContent = '添加课程';
-    document.getElementById('f-time').value = '16:00';
-    document.getElementById('f-duration').value = 1;
+    setTimeInputs('16:00');
+    setDurationInputs(1);
     document.getElementById('f-note').value = '';
     document.querySelectorAll('#f-status input').forEach(r=> r.checked = (r.value==='scheduled'));
     document.getElementById('deleteSessBtn').style.display = 'none';
@@ -1109,8 +1166,8 @@ sessModal.addEventListener('click', (e)=>{ if(e.target===sessModal) closeSessMod
 document.getElementById('saveSessBtn').addEventListener('click', async ()=>{
   if(students.length===0){ alert('请先添加至少一位学生'); return; }
   const studentId = document.getElementById('f-student').value;
-  const time = document.getElementById('f-time').value;
-  const duration = parseFloat(document.getElementById('f-duration').value) || 0;
+  const time = getTimeFromInputs();
+  const duration = getDurationFromInputs();
   const note = document.getElementById('f-note').value.trim();
   const status = document.querySelector('#f-status input:checked').value;
   const isOccupying = (status!=='leave' && status!=='cancelled');
